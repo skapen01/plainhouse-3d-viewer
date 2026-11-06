@@ -467,6 +467,69 @@ function smoothNormalField(n, nV, triCount, vi, uid, cnt, adj){
   }
   if (cur !== n) n.set(cur);
 }
+/* 엔진이 면 경계 근처에 뒤집혀 접힌 삼각형을 만들면 뾰족한 자국이 보입니다.
+   접힌 삼각형의 안쪽 꼭짓점을 주변 점들의 가운데로 옮겨 폅니다. 면 경계의 점은 그대로 두어 틈이 생기지 않습니다. */
+function untangleFolds(geo){
+  if (!geo.index || !geo.attributes.normal) return 0;
+  const I = geo.index.array, P = geo.attributes.position.array, N = geo.attributes.normal.array;
+  const nV = P.length / 3, triCount = I.length / 3;
+  const isFolded = t => {
+    const a = I[3*t], b = I[3*t+1], c = I[3*t+2];
+    const ux = P[3*b]-P[3*a], uy = P[3*b+1]-P[3*a+1], uz = P[3*b+2]-P[3*a+2];
+    const wx = P[3*c]-P[3*a], wy = P[3*c+1]-P[3*a+1], wz = P[3*c+2]-P[3*a+2];
+    const nx = uy*wz-uz*wy, ny = uz*wx-ux*wz, nz = ux*wy-uy*wx;
+    return nx*(N[3*a]+N[3*b]+N[3*c]) + ny*(N[3*a+1]+N[3*b+1]+N[3*c+1]) + nz*(N[3*a+2]+N[3*b+2]+N[3*c+2]) < 0;
+  };
+  let folded = [];
+  for (let t = 0; t < triCount; t++) if (isFolded(t)) folded.push(t);
+  if (!folded.length) return 0;
+  // 경계 점 찾기: 한 번만 쓰인 변(열린 변)의 양 끝, 그리고 다른 면과 같은 위치를 공유하는 점
+  geo.computeBoundingBox();
+  const q = 1e5 / (geo.boundingBox.getSize(new THREE.Vector3()).length() || 1);
+  const posCount = new Map(), key = i => Math.round(P[3*i]*q) + ',' + Math.round(P[3*i+1]*q) + ',' + Math.round(P[3*i+2]*q);
+  for (let i = 0; i < nV; i++){ const k = key(i); posCount.set(k, (posCount.get(k) || 0) + 1); }
+  const locked = new Uint8Array(nV);
+  for (let i = 0; i < nV; i++) if (posCount.get(key(i)) > 1) locked[i] = 1;
+  const edgeUse = new Map();
+  for (let t = 0; t < triCount; t++) for (let j = 0; j < 3; j++){
+    const a = I[3*t+j], b = I[3*t+(j+1)%3], k = a < b ? a * nV + b : b * nV + a;
+    edgeUse.set(k, (edgeUse.get(k) || 0) + 1);
+  }
+  for (const [k, n] of edgeUse) if (n === 1){ locked[Math.floor(k / nV)] = 1; locked[k % nV] = 1; }
+  // 이웃 목록
+  const deg = new Int32Array(nV + 1);
+  for (let t = 0; t < triCount; t++) for (let j = 0; j < 3; j++) deg[I[3*t+j] + 1] += 2;
+  for (let i = 0; i < nV; i++) deg[i+1] += deg[i];
+  const nb = new Int32Array(deg[nV]), f = deg.slice(0, nV);
+  for (let t = 0; t < triCount; t++) for (let j = 0; j < 3; j++){ const a = I[3*t+j], b = I[3*t+(j+1)%3]; nb[f[a]++] = b; nb[f[b]++] = a; }
+  const vtris = new Int32Array(deg[nV] / 2), vt0 = new Int32Array(nV + 1);
+  for (let t = 0; t < triCount; t++) for (let j = 0; j < 3; j++) vt0[I[3*t+j] + 1]++;
+  for (let i = 0; i < nV; i++) vt0[i+1] += vt0[i];
+  const vf = vt0.slice(0, nV);
+  for (let t = 0; t < triCount; t++) for (let j = 0; j < 3; j++) vtris[vf[I[3*t+j]]++] = t;
+  // 접힌 삼각형의 안쪽 점과 그 주변을 조금씩 펴기
+  for (let it = 0; it < 30 && folded.length; it++){
+    const move = new Set();
+    for (const t of folded) for (let j = 0; j < 3; j++){
+      const v = I[3*t+j];
+      if (!locked[v]) move.add(v);
+      if (it > 4) for (let k = deg[v]; k < deg[v+1]; k++) if (!locked[nb[k]]) move.add(nb[k]);
+    }
+    if (!move.size) break;
+    for (const v of move){
+      let x = 0, y = 0, z = 0, c = 0;
+      for (let k = deg[v]; k < deg[v+1]; k++){ const u = nb[k]; x += P[3*u]; y += P[3*u+1]; z += P[3*u+2]; c++; }
+      if (c){ P[3*v] = x / c; P[3*v+1] = y / c; P[3*v+2] = z / c; }
+    }
+    const next = new Set();
+    for (const v of move) for (let k = vt0[v]; k < vt0[v+1]; k++){ const t = vtris[k]; if (isFolded(t)) next.add(t); }
+    for (const t of folded) if (isFolded(t)) next.add(t);
+    folded = [...next];
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.computeBoundingBox(); geo.computeBoundingSphere();
+  return folded.length;
+}
 const QUALITY = {
   fast: {linearDeflection:0.001,  angularDeflection:0.5},
   std:  {linearDeflection:0.0003, angularDeflection:0.15},
@@ -586,6 +649,7 @@ function buildFromOcct(res, fileName){
     g.setAttribute('position', new THREE.Float32BufferAttribute(m.attributes.position.array, 3));
     if (m.attributes.normal) g.setAttribute('normal', new THREE.Float32BufferAttribute(m.attributes.normal.array, 3));
     if (m.index) g.setIndex(m.index.array);
+    untangleFolds(g);
     fixNormals(g, !!m.attributes.normal);
     let faceIds = null;
     if (m.brep_faces && m.brep_faces.length){
