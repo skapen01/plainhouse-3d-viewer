@@ -452,7 +452,9 @@ function smoothNormalField(n, nV, triCount, vi, uid, cnt, adj){
   }
   const cos = Math.cos(THREE.MathUtils.degToRad(30));
   let cur = n, nxt = new Float32Array(n.length);
-  for (let it = 0; it < 6; it++){
+  // 삼각형이 불규칙할수록 넓게 다듬어야 매끈해집니다. 큰 모델은 시간이 오래 걸리지 않도록 횟수를 줄입니다.
+  const iters = Math.max(6, Math.min(50, Math.floor(4e7 / (nb.length + 1))));
+  for (let it = 0; it < iters; it++){
     for (let v = 0; v < nV; v++){
       const x = cur[3*v], y = cur[3*v+1], z = cur[3*v+2];
       let sx = 2*x, sy = 2*y, sz = 2*z;
@@ -519,7 +521,13 @@ function untangleFolds(geo){
     for (const v of move){
       let x = 0, y = 0, z = 0, c = 0;
       for (let k = deg[v]; k < deg[v+1]; k++){ const u = nb[k]; x += P[3*u]; y += P[3*u+1]; z += P[3*u+2]; c++; }
-      if (c){ P[3*v] = x / c; P[3*v+1] = y / c; P[3*v+2] = z / c; }
+      if (c){
+        // 곡면을 따라서만 옮깁니다 (면 방향 성분을 빼서 안쪽으로 꺼지지 않게)
+        let dx = x / c - P[3*v], dy = y / c - P[3*v+1], dz = z / c - P[3*v+2];
+        const nl = Math.hypot(N[3*v], N[3*v+1], N[3*v+2]);
+        if (nl > 0){ const nx = N[3*v]/nl, ny = N[3*v+1]/nl, nz = N[3*v+2]/nl, d = dx*nx + dy*ny + dz*nz; dx -= d*nx; dy -= d*ny; dz -= d*nz; }
+        P[3*v] += dx; P[3*v+1] += dy; P[3*v+2] += dz;
+      }
     }
     const next = new Set();
     for (const v of move) for (let k = vt0[v]; k < vt0[v+1]; k++){ const t = vtris[k]; if (isFolded(t)) next.add(t); }
