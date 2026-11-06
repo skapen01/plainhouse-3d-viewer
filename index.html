@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>3D 모델 뷰어</title>
+<title>Plainhouse 3D Viewer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
 <style>
@@ -34,8 +34,8 @@ button,input,select{font:inherit;color:inherit}
 .bar{grid-area:bar;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding-block:8px;
   padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));
   border-bottom:1px solid var(--line);background:var(--panel)}
-.brand{font-weight:600;letter-spacing:-.01em;margin-right:6px;display:flex;align-items:center;gap:8px}
-.brand i{width:14px;height:14px;border:2px solid var(--accent);border-radius:2px;transform:rotate(45deg) skew(8deg,8deg);display:inline-block}
+.brand{font-weight:700;font-size:14px;letter-spacing:-.01em;margin-right:6px;display:flex;align-items:center;gap:10px;white-space:nowrap}
+.brand svg{width:28px;height:28px;flex:none;border-radius:7px;box-shadow:0 0 0 1px var(--line)}
 .grp{display:flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--bg)}
 .sep{flex:1}
 .btn{border:0;background:transparent;padding:6px 10px;border-radius:5px;cursor:pointer;white-space:nowrap}
@@ -116,7 +116,10 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
 
 <div class="app">
   <header class="bar">
-    <div class="brand"><i></i>3D 모델 뷰어</div>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#000"/><path fill="#fff" fill-rule="evenodd" d="M10.5 7.4h3v1.3a5.6 5.6 0 1 1 0 7.4V20.6h-3zM16.6 9.4a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z"/><rect x="10.5" y="22.6" width="11.3" height="2.3" fill="#fff"/></svg>
+      <span>Plainhouse Internal 3D Viewer</span>
+    </div>
     <button class="btn primary" id="openBtn">파일 열기</button>
     <input type="file" id="fileIn" accept=".stp,.step,.stl,.igs,.iges" multiple hidden>
     <div class="grp" role="group" aria-label="작업 모드">
