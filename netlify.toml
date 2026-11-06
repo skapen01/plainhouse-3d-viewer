@@ -1,0 +1,15 @@
+# 빌드 없이 이 폴더를 그대로 배포합니다
+[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"
+    Cache-Control = "public, max-age=604800"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex"
