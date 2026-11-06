@@ -437,7 +437,35 @@ function fixNormals(geo, keepAnalytic){
     }
     out[3*v] = gx; out[3*v+1] = gy; out[3*v+2] = gz;
   }
+  smoothNormalField(out, nV, triCount, vi, uid, cnt, adj);
   geo.setAttribute('normal', new THREE.BufferAttribute(out, 3));
+}
+/* 불규칙한 삼각형 분할 때문에 생기는 얼룩·방사형 줄무늬를 없애기 위해,
+   이웃한 점들의 면 방향을 몇 번 평균해 고르게 만듭니다. 30° 이상 꺾인 모서리는 섞지 않습니다. */
+function smoothNormalField(n, nV, triCount, vi, uid, cnt, adj){
+  const deg = new Int32Array(nV + 1);
+  for (let t = 0; t < triCount; t++) for (let j = 0; j < 3; j++) deg[vi(t, j) + 1] += 2;
+  for (let i = 0; i < nV; i++) deg[i+1] += deg[i];
+  const nb = new Int32Array(deg[nV]), f = deg.slice(0, nV);
+  for (let t = 0; t < triCount; t++) for (let j = 0; j < 3; j++){
+    const a = vi(t, j), b = vi(t, (j + 1) % 3); nb[f[a]++] = b; nb[f[b]++] = a;
+  }
+  const cos = Math.cos(THREE.MathUtils.degToRad(30));
+  let cur = n, nxt = new Float32Array(n.length);
+  for (let it = 0; it < 6; it++){
+    for (let v = 0; v < nV; v++){
+      const x = cur[3*v], y = cur[3*v+1], z = cur[3*v+2];
+      let sx = 2*x, sy = 2*y, sz = 2*z;
+      const add = u => { const ux = cur[3*u], uy = cur[3*u+1], uz = cur[3*u+2]; if (ux*x + uy*y + uz*z > cos){ sx += ux; sy += uy; sz += uz; } };
+      for (let k = deg[v]; k < deg[v+1]; k++) add(nb[k]);
+      const g = uid[v];
+      for (let k = cnt[g]; k < cnt[g+1]; k++){ const c = adj[k], u = vi((c / 3) | 0, c % 3); if (u !== v) add(u); }
+      const L = Math.hypot(sx, sy, sz) || 1;
+      nxt[3*v] = sx / L; nxt[3*v+1] = sy / L; nxt[3*v+2] = sz / L;
+    }
+    const tmp = cur; cur = nxt; nxt = tmp;
+  }
+  if (cur !== n) n.set(cur);
 }
 const QUALITY = {
   fast: {linearDeflection:0.001,  angularDeflection:0.5},
