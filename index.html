@@ -134,6 +134,14 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       <button class="btn" id="edgeBtn" aria-pressed="true">모서리선</button>
       <button class="btn" id="wireBtn" aria-pressed="false">와이어</button>
     </div>
+    <label class="grp" style="padding:2px 4px 2px 10px;gap:6px" title="STEP·IGES 곡면을 얼마나 촘촘한 삼각형으로 나눌지 정합니다">
+      <span class="note">곡면 품질</span>
+      <select id="quality" class="in" style="width:auto;border:0;background:transparent;padding:4px 2px">
+        <option value="fast">빠름</option>
+        <option value="std" selected>표준</option>
+        <option value="fine">정밀</option>
+      </select>
+    </label>
     <div class="sep"></div>
     <button class="btn" id="undoBtn" disabled title="Ctrl+Z">되돌리기</button>
     <button class="btn" id="saveBtn" disabled>STL 저장</button>
@@ -316,18 +324,66 @@ function makeMaterial(color){
   return new THREE.MeshStandardMaterial({color: color ?? PALETTE[palIdx++ % PALETTE.length], roughness:0.55, metalness:0.05, side:THREE.DoubleSide, wireframe:wire,
     polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1});
 }
-function makeMesh(geo, name, color){
+function makeMesh(geo, name, color, faceIds){
   const m = new THREE.Mesh(geo, makeMaterial(color));
   m.name = name;
   const tris = (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
   m.userData.tris = tris;
   if (tris < 400000){
-    const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 28), edgeMat);
+    const e = new THREE.LineSegments(featureEdges(geo, faceIds), edgeMat);
     e.raycast = () => {}; e.userData.edge = true; e.visible = showEdges;
     m.add(e);
   }
   return m;
 }
+/* 모서리선: STEP은 실제 면(B-rep face) 경계만, STL은 뚜렷하게 꺾인 곳만 그립니다 */
+function featureEdges(geo, faceIds){
+  const pos = geo.attributes.position.array, idx = geo.index ? geo.index.array : null;
+  const nVert = pos.length / 3, triCount = Math.floor((idx ? idx.length : nVert) / 3);
+  geo.computeBoundingBox();
+  const q = 1e5 / (geo.boundingBox.getSize(new THREE.Vector3()).length() || 1);
+  const vid = new Int32Array(nVert), map = new Map();
+  for (let i = 0; i < nVert; i++){
+    const k = Math.round(pos[3*i]*q) + ',' + Math.round(pos[3*i+1]*q) + ',' + Math.round(pos[3*i+2]*q);
+    let id = map.get(k); if (id === undefined){ id = map.size; map.set(k, id); } vid[i] = id;
+  }
+  const nU = map.size, tn = new Float32Array(triCount * 3), ok = new Uint8Array(triCount);
+  const vi = (t, j) => idx ? idx[3*t + j] : 3*t + j;
+  for (let t = 0; t < triCount; t++){
+    const a = vi(t,0), b = vi(t,1), c = vi(t,2);
+    const ux = pos[3*b]-pos[3*a], uy = pos[3*b+1]-pos[3*a+1], uz = pos[3*b+2]-pos[3*a+2];
+    const wx = pos[3*c]-pos[3*a], wy = pos[3*c+1]-pos[3*a+1], wz = pos[3*c+2]-pos[3*a+2];
+    let nx = uy*wz-uz*wy, ny = uz*wx-ux*wz, nz = ux*wy-uy*wx; const L = Math.hypot(nx, ny, nz);
+    if (L > 1e-12){ tn[3*t] = nx/L; tn[3*t+1] = ny/L; tn[3*t+2] = nz/L; ok[t] = 1; }
+  }
+  const edges = new Map();
+  for (let t = 0; t < triCount; t++){
+    for (let j = 0; j < 3; j++){
+      const i0 = vi(t, j), i1 = vi(t, (j + 1) % 3), a = vid[i0], b = vid[i1];
+      if (a === b) continue;
+      const key = a < b ? a * nU + b : b * nU + a;
+      const r = edges.get(key);
+      if (!r) edges.set(key, [t, -1, i0, i1]); else if (r[1] === -1) r[1] = t; else r[1] = -2;
+    }
+  }
+  const cosFace = Math.cos(THREE.MathUtils.degToRad(10)), cosSharp = Math.cos(THREE.MathUtils.degToRad(40));
+  const out = [];
+  for (const r of edges.values()){
+    const t1 = r[0], t2 = r[1]; let draw;
+    if (t2 < 0) draw = true;
+    else {
+      const d = (ok[t1] && ok[t2]) ? tn[3*t1]*tn[3*t2] + tn[3*t1+1]*tn[3*t2+1] + tn[3*t1+2]*tn[3*t2+2] : 1;
+      draw = faceIds ? (faceIds[t1] !== faceIds[t2] && d < cosFace) : d < cosSharp;
+    }
+    if (draw){ const a = r[2], b = r[3]; out.push(pos[3*a], pos[3*a+1], pos[3*a+2], pos[3*b], pos[3*b+1], pos[3*b+2]); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(out, 3)); return g;
+}
+const QUALITY = {
+  fast: {linearDeflection:0.001,  angularDeflection:0.5},
+  std:  {linearDeflection:0.0003, angularDeflection:0.15},
+  fine: {linearDeflection:0.00015, angularDeflection:0.08}
+};
 function isVisible(o){ for (let p = o; p; p = p.parent){ if (!p.visible) return false; if (p === modelRoot) return true; } return false; }
 function parts(){ return modelRoot.children.filter(c => c.isGroup || c.isMesh); }
 function hasModel(){ let n = 0; modelRoot.traverse(o => { if (o.isMesh) n++; }); return n > 0; }
@@ -443,14 +499,20 @@ function buildFromOcct(res, fileName){
     if (m.attributes.normal) g.setAttribute('normal', new THREE.Float32BufferAttribute(m.attributes.normal.array, 3));
     if (m.index) g.setIndex(m.index.array);
     if (!m.attributes.normal) g.computeVertexNormals();
+    let faceIds = null;
+    if (m.brep_faces && m.brep_faces.length){
+      const tc = (m.index ? m.index.array.length : m.attributes.position.array.length / 3) / 3;
+      faceIds = new Int32Array(tc).fill(-1);
+      m.brep_faces.forEach((f, fi) => { for (let t = f.first; t <= f.last && t < tc; t++) faceIds[t] = fi; });
+    }
     let col = m.color;
     if (!col && m.brep_faces) { const f = m.brep_faces.find(f => f.color); if (f) col = f.color; }
-    return {g, name: m.name, color: col ? new THREE.Color(col[0], col[1], col[2]) : null};
+    return {g, name: m.name, faceIds, color: col ? new THREE.Color(col[0], col[1], col[2]) : null};
   });
   let count = 0;
   function walk(node, depth){
     const kids = (node.children || []).map(c => walk(c, depth + 1)).filter(Boolean);
-    const ms = (node.meshes || []).map(i => { const d = geos[i]; count++; return makeMesh(d.g, d.name || node.name || `부품 ${count}`, d.color); });
+    const ms = (node.meshes || []).map(i => { const d = geos[i]; count++; return makeMesh(d.g, d.name || node.name || `부품 ${count}`, d.color, d.faceIds); });
     if (!kids.length && ms.length === 1){ if (node.name) ms[0].name = node.name; return ms[0]; }
     if (!kids.length && !ms.length) return null;
     const grp = new THREE.Group(); grp.name = node.name || (depth === 0 ? fileName : '어셈블리');
@@ -462,8 +524,10 @@ function buildFromOcct(res, fileName){
   if (top.isGroup) top.name = fileName;
   return top;
 }
+let lastFiles = [];
 async function loadFiles(files){
   files = [...files].filter(f => /\.(stp|step|stl|igs|iges)$/i.test(f.name));
+  if (files.length) lastFiles = files;
   if (!files.length){ toast('STP, STEP, STL, IGES 파일만 열 수 있습니다.'); return; }
   clearScene();
   const loaded = [];
@@ -481,7 +545,7 @@ async function loadFiles(files){
         busy('STEP 해석 엔진 준비 중'); await nextFrame();
         const occt = await getOcct();
         busy(`${f.name} 형상 해석 중 (큰 파일은 수십 초 걸릴 수 있습니다)`); await nextFrame();
-        const params = {linearUnit:'millimeter', linearDeflectionType:'bounding_box_ratio', linearDeflection:0.0008, angularDeflection:0.35};
+        const params = Object.assign({linearUnit:'millimeter', linearDeflectionType:'bounding_box_ratio'}, QUALITY[$('#quality').value] || QUALITY.std);
         const res = (ext === 'igs' || ext === 'iges') ? occt.ReadIgesFile(new Uint8Array(buf), params) : occt.ReadStepFile(new Uint8Array(buf), params);
         if (!res || !res.success || !res.meshes.length) throw new Error('형상을 읽지 못했습니다');
         obj = buildFromOcct(res, f.name.replace(/\.(stp|step|igs|iges)$/i, ''));
@@ -505,6 +569,12 @@ function afterLoad(){
 }
 
 $('#openBtn').onclick = () => $('#fileIn').click();
+$('#quality').onchange = () => {
+  const cad = lastFiles.filter(f => !/\.stl$/i.test(f.name));
+  if (!cad.length){ toast('다음에 STEP 파일을 열 때 적용됩니다'); return; }
+  if (undoStack.length){ toast('편집 중인 내용이 있어 바로 다시 읽지 않았습니다. 다음에 파일을 열 때 적용됩니다'); return; }
+  loadFiles(lastFiles);
+};
 $('#fileIn').onchange = e => { if (e.target.files.length) loadFiles(e.target.files); e.target.value = ''; };
 let dragDepth = 0;
 vp.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; $('#drop').hidden = false; });
