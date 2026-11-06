@@ -7,22 +7,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Inter:wght@700&display=swap">
 <style>
+/* 밝은 화면 하나로 고정 (사내 요청: 배경 흰색) */
 /* Layout: workbench — parts tree | viewport | inspector, top toolbar; stacks on phones */
 :root{
   --bg:#e9ecee; --panel:#f7f8f9; --line:#d3d9dd; --fg:#1a2127; --muted:#5b6771;
   --accent:#0c6b77; --accent-soft:#d5eaec; --measure:#c06400; --brand-fg:#0b0d0f; --danger:#b3261e;
-  --vp:#e2e7ea; --vp2:#cfd6db; --grid:#aab4bc; --grid2:#c6ced4; --edge:#25303a;
+  --vp:#ffffff; --vp2:#f1f4f6; --grid:#aab4bc; --grid2:#c6ced4; --edge:#25303a;
   --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#121619; --panel:#191e22; --line:#2a3238; --fg:#e2e7eb; --muted:#8f9ca6;
-  --accent:#4cb6c3; --accent-soft:#163539; --measure:#f2a345; --brand-fg:#ffffff; --danger:#f08a82;
-  --vp:#1c2226; --vp2:#0f1316; --grid:#3d474e; --grid2:#283035; --edge:#070a0c; color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#121619; --panel:#191e22; --line:#2a3238; --fg:#e2e7eb; --muted:#8f9ca6;
-  --accent:#4cb6c3; --accent-soft:#163539; --measure:#f2a345; --brand-fg:#ffffff; --danger:#f08a82;
-  --vp:#1c2226; --vp2:#0f1316; --grid:#3d474e; --grid2:#283035; --edge:#070a0c; color-scheme:dark}
 html,body{height:100%}
 :root{color-scheme:light}
 body{margin:0}
@@ -66,6 +59,14 @@ button,input,select{font:inherit;color:inherit}
 .hint.measure{border-color:var(--measure);color:var(--measure)}
 .drop{position:absolute;inset:10px;border:2px dashed var(--accent);border-radius:10px;display:grid;place-items:center;
   background:color-mix(in srgb,var(--accent-soft) 80%,transparent);font-size:15px;font-weight:500;color:var(--accent);pointer-events:none}
+.start{position:absolute;inset:0;display:grid;place-items:center;padding:24px;pointer-events:none}
+.start-card{pointer-events:auto;display:grid;justify-items:center;gap:14px;text-align:center;max-width:420px}
+.start-btn{display:inline-flex;align-items:center;gap:12px;border:0;cursor:pointer;background:var(--accent);color:#fff;font:600 19px/1 var(--sans);padding:20px 36px;border-radius:14px;box-shadow:0 6px 20px color-mix(in srgb,var(--accent) 30%,transparent)}
+.start-btn:hover{filter:brightness(1.08)}
+.start-btn:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.start-btn svg{width:24px;height:24px}
+.start-card p{margin:0;color:var(--muted);font-size:13px;line-height:1.6}
+.start-card b{color:var(--fg);font-weight:500}
 .overlay{position:absolute;inset:0;display:grid;place-items:center;background:color-mix(in srgb,var(--vp2) 70%,transparent)}
 .overlay div{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px;display:flex;gap:12px;align-items:center}
 .spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
@@ -161,6 +162,15 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     <div id="labels"></div>
     <div class="hint" id="hint">클릭: 부품 선택 · 드래그: 회전 · 우클릭 드래그: 이동 · 휠: 확대</div>
     <div class="status" id="status"></div>
+    <div class="start" id="start">
+      <div class="start-card">
+        <button class="start-btn" id="startOpen" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5 12 11l2.5 2.5"/></svg>
+          파일 열기
+        </button>
+        <p>또는 파일을 이 화면에 끌어다 놓으세요<br><b>STP · STEP · STL · IGES</b> · 여러 파일을 한 번에 열 수 있습니다</p>
+      </div>
+    </div>
     <div class="drop" id="drop" hidden>여기에 놓으면 열립니다 (STP · STEP · STL · IGES)</div>
     <div class="overlay" id="busy" hidden><div><span class="spin"></span><span id="busyMsg">불러오는 중</span></div></div>
   </main>
@@ -893,6 +903,7 @@ function afterLoad(){
 }
 
 $('#openBtn').onclick = () => $('#fileIn').click();
+$('#startOpen').onclick = () => $('#fileIn').click();
 $('#quality').onchange = () => {
   const cad = lastFiles.filter(f => !/\.stl$/i.test(f.name));
   if (!cad.length){ toast('다음에 STEP 파일을 열 때 적용됩니다'); return; }
@@ -906,24 +917,12 @@ vp.addEventListener('dragleave', () => { if (--dragDepth <= 0){ dragDepth = 0; $
 vp.addEventListener('dragover', e => e.preventDefault());
 vp.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('#drop').hidden = true; if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files); });
 
-/* ---------- sample (치약 튜브 예시) ---------- */
-function lathe(pts){ const g = new THREE.LatheGeometry(pts.map(p => new THREE.Vector2(p[0], p[1])), 72); g.rotateX(Math.PI / 2); g.computeVertexNormals(); return g; }
-function loadSample(){
-  const grp = new THREE.Group(); grp.name = '예시 · 치약 튜브 Ø35';
-  grp.add(makeMesh(lathe([[0,-90],[17.5,-90],[17.5,0],[0,0]]), '튜브 몸체', 0xdfe3e6));
-  grp.add(makeMesh(lathe([[0,0],[17.5,0],[17.5,1.5],[8,9],[6.5,9.5],[6.5,15],[0,15]]), '숄더', 0x8fb7c2));
-  grp.add(makeMesh(lathe([[0,13],[10,13],[10,27.5],[9.4,29],[0,29]]), '캡', 0x0c6b77));
-  grp.position.z = 90;
-  modelRoot.add(grp);
-  currentFile = '예시 모델';
-  afterLoad();
-}
-
 /* ---------- tree ---------- */
 const EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>';
 const EYE_OFF = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><path d="M2 14L14 2"/></svg>';
 function countTris(o){ let t = 0; o.traverse(x => { if (x.isMesh) t += x.userData.tris || 0; }); return t; }
 function renderTree(){
+  $('#start').hidden = hasModel();
   const box = $('#treeList'); box.innerHTML = '';
   if (!parts().length){ box.innerHTML = '<div class="empty">파일을 열면 부품 목록이 여기에 표시됩니다.</div>'; return; }
   const walk = (obj, depth) => obj.children.forEach(ch => {
@@ -1195,7 +1194,7 @@ $('#saveBtn').onclick = async () => {
 };
 
 /* ---------- start ---------- */
-applyTheme(); renderMeasures(); resize(); loadSample(); setMode('select'); loop();
+applyTheme(); renderMeasures(); resize(); renderTree(); refreshStats(); updateStatus(); setMode('select'); loop();
 })();
 </script>
 
