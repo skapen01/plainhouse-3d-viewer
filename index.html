@@ -7,15 +7,23 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Inter:wght@700&display=swap">
 <style>
-/* 밝은 화면 하나로 고정 (사내 요청: 배경 흰색) */
+/* 화면은 다크 모드를 따르되, 3D 모델이 보이는 영역만 항상 흰 배경 (사내 요청) */
 /* Layout: workbench — parts tree | viewport | inspector, top toolbar; stacks on phones */
 :root{
   --bg:#e9ecee; --panel:#f7f8f9; --line:#d3d9dd; --fg:#1a2127; --muted:#5b6771;
   --accent:#0c6b77; --accent-soft:#d5eaec; --measure:#c06400; --brand-fg:#0b0d0f; --danger:#b3261e;
-  --vp:#ffffff; --vp2:#f1f4f6; --grid:#aab4bc; --grid2:#c6ced4; --edge:#25303a;
+  --vp:#ffffff; --vp2:#f1f4f6; --vp-fg:#1a2127; --vp-muted:#5b6771; --grid:#aab4bc; --grid2:#c6ced4; --edge:#25303a;
   --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
 }
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121619; --panel:#191e22; --line:#2a3238; --fg:#e2e7eb; --muted:#8f9ca6;
+  --accent:#4cb6c3; --accent-soft:#163539; --measure:#f2a345; --brand-fg:#ffffff; --danger:#f08a82;
+  --vp:#ffffff; --vp2:#f1f4f6; --vp-fg:#1a2127; --vp-muted:#5b6771; --grid:#aab4bc; --grid2:#c6ced4; --edge:#25303a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121619; --panel:#191e22; --line:#2a3238; --fg:#e2e7eb; --muted:#8f9ca6;
+  --accent:#4cb6c3; --accent-soft:#163539; --measure:#f2a345; --brand-fg:#ffffff; --danger:#f08a82;
+  --vp:#ffffff; --vp2:#f1f4f6; --vp-fg:#1a2127; --vp-muted:#5b6771; --grid:#aab4bc; --grid2:#c6ced4; --edge:#25303a; color-scheme:dark}
 html,body{height:100%}
 :root{color-scheme:light}
 body{margin:0}
@@ -51,9 +59,9 @@ button,input,select{font:inherit;color:inherit}
 #labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .mlabel{position:absolute;transform:translate(-50%,-50%);background:var(--measure);color:#fff;font:500 11px/1 var(--mono);
   padding:4px 6px;border-radius:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.status{position:absolute;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:4px 16px;padding:7px 12px;font-size:11.5px;color:var(--muted);
+.status{position:absolute;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:4px 16px;padding:7px 12px;font-size:11.5px;color:var(--vp-muted);
   pointer-events:none;background:linear-gradient(transparent,color-mix(in srgb,var(--vp2) 85%,transparent))}
-.status b{color:var(--fg);font-weight:500;font-family:var(--mono)}
+.status b{color:var(--vp-fg);font-weight:500;font-family:var(--mono)}
 .hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);
   padding:6px 12px;border-radius:999px;font-size:12px;color:var(--muted);white-space:nowrap;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis}
 .hint.measure{border-color:var(--measure);color:var(--measure)}
@@ -61,12 +69,12 @@ button,input,select{font:inherit;color:inherit}
   background:color-mix(in srgb,var(--accent-soft) 80%,transparent);font-size:15px;font-weight:500;color:var(--accent);pointer-events:none}
 .start{position:absolute;inset:0;display:grid;place-items:center;padding:24px;pointer-events:none}
 .start-card{pointer-events:auto;display:grid;justify-items:center;gap:14px;text-align:center;max-width:420px}
-.start-btn{display:inline-flex;align-items:center;gap:12px;border:0;cursor:pointer;background:var(--accent);color:#fff;font:600 19px/1 var(--sans);padding:20px 36px;border-radius:14px;box-shadow:0 6px 20px color-mix(in srgb,var(--accent) 30%,transparent)}
+.start-btn{display:inline-flex;align-items:center;gap:12px;border:0;cursor:pointer;background:var(--accent);color:var(--panel);font:600 19px/1 var(--sans);padding:20px 36px;border-radius:14px;box-shadow:0 6px 20px color-mix(in srgb,var(--accent) 30%,transparent)}
 .start-btn:hover{filter:brightness(1.08)}
 .start-btn:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .start-btn svg{width:24px;height:24px}
-.start-card p{margin:0;color:var(--muted);font-size:13px;line-height:1.6}
-.start-card b{color:var(--fg);font-weight:500}
+.start-card p{margin:0;color:var(--vp-muted);font-size:13px;line-height:1.6}
+.start-card b{color:var(--vp-fg);font-weight:500}
 .overlay{position:absolute;inset:0;display:grid;place-items:center;background:color-mix(in srgb,var(--vp2) 70%,transparent)}
 .overlay div{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px;display:flex;gap:12px;align-items:center}
 .spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
