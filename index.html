@@ -5,23 +5,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Plainhouse 3D Viewer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Inter:wght@700&display=swap">
 <style>
 /* Layout: workbench — parts tree | viewport | inspector, top toolbar; stacks on phones */
 :root{
   --bg:#e9ecee; --panel:#f7f8f9; --line:#d3d9dd; --fg:#1a2127; --muted:#5b6771;
-  --accent:#0c6b77; --accent-soft:#d5eaec; --measure:#c06400; --danger:#b3261e;
+  --accent:#0c6b77; --accent-soft:#d5eaec; --measure:#c06400; --brand-fg:#0b0d0f; --danger:#b3261e;
   --vp:#e2e7ea; --vp2:#cfd6db; --grid:#aab4bc; --grid2:#c6ced4; --edge:#25303a;
   --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#121619; --panel:#191e22; --line:#2a3238; --fg:#e2e7eb; --muted:#8f9ca6;
-  --accent:#4cb6c3; --accent-soft:#163539; --measure:#f2a345; --danger:#f08a82;
+  --accent:#4cb6c3; --accent-soft:#163539; --measure:#f2a345; --brand-fg:#ffffff; --danger:#f08a82;
   --vp:#1c2226; --vp2:#0f1316; --grid:#3d474e; --grid2:#283035; --edge:#070a0c; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#121619; --panel:#191e22; --line:#2a3238; --fg:#e2e7eb; --muted:#8f9ca6;
-  --accent:#4cb6c3; --accent-soft:#163539; --measure:#f2a345; --danger:#f08a82;
+  --accent:#4cb6c3; --accent-soft:#163539; --measure:#f2a345; --brand-fg:#ffffff; --danger:#f08a82;
   --vp:#1c2226; --vp2:#0f1316; --grid:#3d474e; --grid2:#283035; --edge:#070a0c; color-scheme:dark}
 html,body{height:100%}
 :root{color-scheme:light}
@@ -34,8 +34,10 @@ button,input,select{font:inherit;color:inherit}
 .bar{grid-area:bar;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding-block:8px;
   padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));
   border-bottom:1px solid var(--line);background:var(--panel)}
-.brand{font-weight:700;font-size:14px;letter-spacing:-.01em;margin-right:6px;display:flex;align-items:center;gap:10px;white-space:nowrap}
-.brand svg{width:28px;height:28px;flex:none;border-radius:7px;box-shadow:0 0 0 1px var(--line)}
+/* 사내 인터널 페이지와 같은 로고·서체 */
+.brand{font:700 15px/1 "Inter",Pretendard,system-ui,sans-serif;letter-spacing:-.02em;margin-right:6px;display:flex;align-items:center;gap:10px;white-space:nowrap}
+.brand svg{width:28px;height:28px;flex:none;border-radius:7px}
+.brand span{color:var(--brand-fg)}
 .grp{display:flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--bg)}
 .sep{flex:1}
 .btn{border:0;background:transparent;padding:6px 10px;border-radius:5px;cursor:pointer;white-space:nowrap}
@@ -117,7 +119,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
 <div class="app">
   <header class="bar">
     <div class="brand">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#000"/><path fill="#fff" fill-rule="evenodd" d="M10.5 7.4h3v1.3a5.6 5.6 0 1 1 0 7.4V20.6h-3zM16.6 9.4a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z"/><rect x="10.5" y="22.6" width="11.3" height="2.3" fill="#fff"/></svg>
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#000"/><path fill="#fff" fill-rule="evenodd" d="M9.2 5.2h3.1v.9a5.9 5.9 0 0 1 2.8-.8c3.3 0 5.9 2.5 5.9 5.6s-2.6 5.6-5.9 5.6a5.9 5.9 0 0 1-2.8-.8v5.4H9.2zM15.1 7.8a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 0 0 0-6.2z"/><rect x="9.2" y="24.7" width="12.4" height="2.6" fill="#fff"/></svg>
       <span>Plainhouse Internal 3D Viewer</span>
     </div>
     <button class="btn primary" id="openBtn">파일 열기</button>
