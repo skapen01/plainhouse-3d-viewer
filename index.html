@@ -159,6 +159,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     <div class="sep"></div>
     <button class="btn" id="undoBtn" disabled title="Ctrl+Z">되돌리기</button>
     <button class="btn" id="saveBtn" disabled>STL 저장</button>
+    <button class="btn" id="stepBtn" disabled title="원래 곡면 형상을 유지한 채 편집 결과를 STEP으로 저장">STEP 저장</button>
   </header>
 
   <aside class="panel tree">
@@ -258,7 +259,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
 
     <section class="sec">
       <h2>저장</h2>
-      <p class="note" style="margin:0" id="saveNote">보이는 부품을 편집한 상태 그대로 STL로 저장합니다. STEP 원본 형상은 바뀌지 않습니다.</p>
+      <p class="note" style="margin:0" id="saveNote">보이는 부품을 편집한 상태 그대로 저장합니다.<br><b>STEP</b>: 원래 곡면 형상을 유지하고 이동·회전·크기·색상·삭제를 반영합니다. STEP·IGES로 연 부품만 들어갑니다.<br><b>STL</b>: 화면의 삼각형 그대로 저장합니다.</p>
     </section>
   </aside>
 </div>
@@ -667,7 +668,7 @@ const OC_JS = './lib/opencascade.full.js';
 // STEP·IGES는 곡면 수식에서 정확한 면 방향을 계산해 상용 뷰어처럼 매끈하게 그립니다.
 // 엔진(약 14MB)은 STEP·IGES를 처음 열 때 한 번만 내려받고, 이후에는 브라우저에 저장된 것을 씁니다.
 const OC_PARTS = ['oc/ocw-0.wasm', 'oc/ocw-1.wasm', 'oc/ocw-2.wasm', 'oc/ocw-3.wasm'];
-let ocP = null;
+let ocP = null, ocInst = null;
 function getOC(){
   if (!ocP){
     ocP = (async () => {
@@ -684,7 +685,8 @@ function getOC(){
       let off = 0; for (const p of parts){ wasm.set(p, off); off += p.length; }
       busy('정밀 엔진 준비 중'); await nextFrame();
       const mod = await import(OC_JS);
-      return await mod.default({wasmBinary: wasm.buffer, locateFile: p => p});
+      ocInst = await mod.default({wasmBinary: wasm.buffer, locateFile: p => p});
+      return ocInst;
     })();
     ocP.catch(() => { ocP = null; });
   }
@@ -795,11 +797,12 @@ function ocReadCad(oc, bytes, ext, fileName, quality){
     } else {
       const key = ref.Tag();
       let d = geoCache.get(key);
-      if (d === undefined){ const s = new oc.TopoDS_Shape(); SToolS.GetShape_1(ref, s); d = shapeGeometry(s); geoCache.set(key, d); }
+      if (d === undefined){ const s = new oc.TopoDS_Shape(); SToolS.GetShape_1(ref, s); d = shapeGeometry(s); if (d) d.shape = s; geoCache.set(key, d); }
       if (d){
         partNo++;
         obj = makeMesh(geoCache.get(key + ':used') ? d.g.clone() : d.g, name || `부품 ${partNo}`, color || d.faceColor, d.faceIds);
         geoCache.set(key + ':used', true);
+        obj.userData.brep = d.shape;
       }
     }
     if (obj && SToolS.IsReference(L)){ obj.applyMatrix4(trsfMatrix(SToolS.GetLocation(L))); }
@@ -1163,7 +1166,7 @@ window.addEventListener('keydown', e => {
 });
 
 /* ---------- export STL (zip) ---------- */
-function updateSave(){ $('#saveBtn').disabled = !hasModel(); }
+function updateSave(){ $('#saveBtn').disabled = !hasModel(); $('#stepBtn').disabled = !hasBrep(); }
 function buildSTL(){
   const list = []; modelRoot.updateMatrixWorld(true);
   modelRoot.traverse(o => { if (o.isMesh && isVisible(o)) list.push(o); });
@@ -1199,6 +1202,65 @@ $('#saveBtn').onclick = async () => {
     toast('STL 파일을 내려받았습니다');
   } catch (err){ console.error(err); toast('STL을 만들지 못했습니다'); }
   finally { busy(null); }
+};
+
+
+async function deliverFile(name, bytes, mime, okMsg){
+  const url = URL.createObjectURL(new Blob([bytes], {type: mime})), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  toast(okMsg || '저장했습니다');
+}
+/* ---------- STEP 저장 ---------- */
+function hasBrep(){ let n = 0; modelRoot.traverse(o => { if (o.isMesh && o.userData.brep) n++; }); return n > 0; }
+function fileBase(){ return (currentFile.split(',')[0] || '모델').replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]/g, '_'); }
+// STEP 규격에 맞게 한글 등 ASCII 밖 글자를 \X2\....\X0\ 형식으로 바꿉니다 (다른 CAD에서 이름이 깨지지 않게)
+function stepEncode(bytes){
+  const text = new TextDecoder().decode(bytes);
+  const out = text.replace(/[^\x00-\x7f]+/g, run => {
+    let h = ''; for (let i = 0; i < run.length; i++) h += run.charCodeAt(i).toString(16).toUpperCase().padStart(4, '0');
+    return '\\X2\\' + h + '\\X0\\';
+  });
+  return new TextEncoder().encode(out);
+}
+function buildStep(){
+  const oc = ocInst; if (!oc) throw new Error('정밀 엔진이 준비되지 않았습니다');
+  modelRoot.updateMatrixWorld(true);
+  const list = []; let skipped = 0;
+  modelRoot.traverse(o => { if (!o.isMesh || !isVisible(o)) return; if (o.userData.brep) list.push(o); else skipped++; });
+  if (!list.length) throw new Error('STEP으로 저장할 부품이 없습니다');
+  const doc = new oc.Handle_TDocStd_Document_2(new oc.TDocStd_Document(new oc.TCollection_ExtendedString_1()));
+  const main = doc.get().Main();
+  const ST = oc.XCAFDoc_DocumentTool.ShapeTool(main).get(), CT = oc.XCAFDoc_DocumentTool.ColorTool(main).get();
+  const asm = list.length > 1 ? ST.NewShape() : null;
+  if (asm) oc.TDataStd_Name.Set_1(asm, new oc.TCollection_ExtendedString_2(fileBase(), true));
+  for (const o of list){
+    const e = o.matrixWorld.elements, t = new oc.gp_Trsf_1();
+    t.SetValues(e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14]);
+    const shp = new oc.BRepBuilderAPI_Transform_2(o.userData.brep, t, true).Shape();
+    const lab = ST.AddShape(shp, false, false);
+    oc.TDataStd_Name.Set_1(lab, new oc.TCollection_ExtendedString_2(o.name || '부품', true));
+    const c = o.material.color;
+    CT.SetColor_2(lab, new oc.Quantity_Color_3(c.r, c.g, c.b, oc.Quantity_TypeOfColor.Quantity_TOC_RGB), oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf);
+    if (asm) ST.AddComponent_1(asm, lab, new oc.TopLoc_Location_1());
+  }
+  ST.UpdateAssemblies();
+  const w = new oc.STEPCAFControl_Writer_1(); w.SetNameMode(true); w.SetColorMode(true);
+  if (!w.Transfer_1(doc, oc.STEPControl_StepModelType.STEPControl_AsIs, null, new oc.Message_ProgressRange_1())) throw new Error('STEP 변환에 실패했습니다');
+  const path = '/export.stp';
+  if (w.Write(path) !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new Error('STEP 파일을 쓰지 못했습니다');
+  const bytes = stepEncode(oc.FS.readFile(path)); try { oc.FS.unlink(path); } catch {}
+  return {bytes, count: list.length, skipped};
+}
+$('#stepBtn').onclick = async () => {
+  if ($('#stepBtn').disabled) return;
+  busy('STEP 만드는 중'); await nextFrame();
+  let r;
+  try { r = buildStep(); }
+  catch (err){ console.error(err); busy(null); toast(err.message || 'STEP 파일을 만들지 못했습니다'); return; }
+  busy(null);
+  const note = r.skipped ? ` · STL로 연 부품 ${r.skipped}개는 제외` : '';
+  await deliverFile(`${fileBase()}_수정.stp`, r.bytes, 'model/step', `STEP 저장 완료 (부품 ${r.count}개${note})`);
 };
 
 /* ---------- start ---------- */
