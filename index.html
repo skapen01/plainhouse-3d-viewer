@@ -639,6 +639,156 @@ function busy(msg){ $('#busy').hidden = !msg; if (msg) $('#busyMsg').textContent
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
 /* ---------- loading ---------- */
+const OC_JS = './lib/opencascade.full.js';
+/* ---------- 정밀 엔진 (Open CASCADE 전체 버전) ---------- */
+// STEP·IGES는 곡면 수식에서 정확한 면 방향을 계산해 상용 뷰어처럼 매끈하게 그립니다.
+// 엔진(약 14MB)은 STEP·IGES를 처음 열 때 한 번만 내려받고, 이후에는 브라우저에 저장된 것을 씁니다.
+const OC_PARTS = ['oc/ocw-0.wasm', 'oc/ocw-1.wasm', 'oc/ocw-2.wasm', 'oc/ocw-3.wasm'];
+let ocP = null;
+function getOC(){
+  if (!ocP){
+    ocP = (async () => {
+      let done = 0;
+      busy('정밀 엔진 내려받는 중 (처음 한 번만, 0/4)');
+      const parts = await Promise.all(OC_PARTS.map(async u => {
+        const r = await fetch(u);
+        if (!r.ok) throw new Error('정밀 엔진 파일을 받지 못했습니다');
+        const b = new Uint8Array(await r.arrayBuffer());
+        busy(`정밀 엔진 내려받는 중 (처음 한 번만, ${++done}/4)`);
+        return b;
+      }));
+      const total = parts.reduce((n, p) => n + p.length, 0), wasm = new Uint8Array(total);
+      let off = 0; for (const p of parts){ wasm.set(p, off); off += p.length; }
+      busy('정밀 엔진 준비 중'); await nextFrame();
+      const mod = await import(OC_JS);
+      return await mod.default({wasmBinary: wasm.buffer, locateFile: p => p});
+    })();
+    ocP.catch(() => { ocP = null; });
+  }
+  return ocP;
+}
+function ocReadCad(oc, bytes, ext, fileName, quality){
+  const isIges = ext === 'igs' || ext === 'iges';
+  const path = '/model.' + (isIges ? 'igs' : 'stp');
+  oc.FS.writeFile(path, bytes);
+  const doc = new oc.Handle_TDocStd_Document_2(new oc.TDocStd_Document(new oc.TCollection_ExtendedString_1()));
+  const reader = isIges ? new oc.IGESCAFControl_Reader_1() : new oc.STEPCAFControl_Reader_1();
+  reader.SetColorMode(true); reader.SetNameMode(true);
+  if (reader.ReadFile(path) !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new Error('파일 형식을 읽지 못했습니다');
+  const ok = isIges ? reader.Transfer(doc, new oc.Message_ProgressRange_1()) : reader.Transfer_1(doc, new oc.Message_ProgressRange_1());
+  try { oc.FS.unlink(path); } catch {}
+  if (!ok) throw new Error('형상을 읽지 못했습니다');
+  const main = doc.get().Main();
+  const ST = oc.XCAFDoc_DocumentTool.ShapeTool(main).get(), CT = oc.XCAFDoc_DocumentTool.ColorTool(main).get();
+  const SToolS = oc.XCAFDoc_ShapeTool;
+  const nameOf = L => {
+    const h = new oc.Handle_TDF_Attribute_1();
+    if (!L.FindAttribute_1(oc.TDataStd_Name.GetID(), h)) return '';
+    const es = h.get().Get();
+    try { const p = es.ToExtString(); if (typeof p === 'number'){ let s = '', i = p >> 1; while (oc.HEAPU16[i]) s += String.fromCharCode(oc.HEAPU16[i++]); return s.trim(); } } catch {}
+    try { return new oc.TCollection_AsciiString_13(es, 63).ToCString().trim(); } catch { return ''; }
+  };
+  const qc = new oc.Quantity_Color_1();
+  const colorOfLabel = L => {
+    for (const t of [oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf, oc.XCAFDoc_ColorType.XCAFDoc_ColorGen])
+      if (CT.GetColor_4(L, t, qc)) return new THREE.Color(qc.Red(), qc.Green(), qc.Blue());
+    return null;
+  };
+  const colorOfShape = S => {
+    for (const t of [oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf, oc.XCAFDoc_ColorType.XCAFDoc_ColorGen])
+      if (CT.GetColor_7(S, t, qc)) return new THREE.Color(qc.Red(), qc.Green(), qc.Blue());
+    return null;
+  };
+  const free = new oc.TDF_LabelSequence_1(); ST.GetFreeShapes(free);
+  // 전체 크기를 기준으로 곡면 분할 정밀도를 정합니다 (곡면 품질 설정)
+  const q = QUALITY[quality] || QUALITY.std;
+  const box = new oc.Bnd_Box_1();
+  for (let i = 1; i <= free.Length(); i++){ const s = new oc.TopoDS_Shape(); SToolS.GetShape_1(free.Value(i), s); oc.BRepBndLib.Add(s, box, false); }
+  const diag = box.IsVoid() ? 100 : Math.sqrt(box.SquareExtent());
+  const lin = Math.max(diag * q.linearDeflection, 1e-4);
+  for (let i = 1; i <= free.Length(); i++){ const s = new oc.TopoDS_Shape(); SToolS.GetShape_1(free.Value(i), s); new oc.BRepMesh_IncrementalMesh_2(s, lin, false, q.angularDeflection, false); }
+
+  const trsfMatrix = loc => {
+    const t = loc.Transformation(), m = new THREE.Matrix4();
+    m.set(t.Value(1,1), t.Value(1,2), t.Value(1,3), t.Value(1,4), t.Value(2,1), t.Value(2,2), t.Value(2,3), t.Value(2,4), t.Value(3,1), t.Value(3,2), t.Value(3,3), t.Value(3,4), 0, 0, 0, 1);
+    return m;
+  };
+  const geoCache = new Map();
+  const P = new oc.gp_Pnt_1(), V = new oc.gp_Vec_1();
+  function shapeGeometry(shape){
+    const pos = [], nrm = [], idx = [], fid = []; let base = 0, fi = 0, faceColor = null;
+    const exp = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    for (; exp.More(); exp.Next(), fi++){
+      const face = oc.TopoDS.Face_1(exp.Current());
+      const floc = new oc.TopLoc_Location_1();
+      const th = oc.BRep_Tool.Triangulation(face, floc, 0);
+      if (th.IsNull()) continue;
+      const T = th.get(), tr = floc.Transformation(), n = T.NbNodes(), m = T.NbTriangles();
+      if (!faceColor) faceColor = colorOfShape(face);
+      const prop = new oc.BRepGProp_Face_2(face, false), hasUV = T.HasUVNodes();
+      for (let i = 1; i <= n; i++){
+        const p = T.Node(i).Transformed(tr); pos.push(p.X(), p.Y(), p.Z());
+        if (hasUV){
+          const uv = T.UVNode(i); prop.Normal(uv.X(), uv.Y(), P, V);
+          const v = V.Transformed(tr), L = v.Magnitude();
+          if (L > 1e-12){ nrm.push(v.X()/L, v.Y()/L, v.Z()/L); continue; }
+        }
+        nrm.push(NaN, NaN, NaN);
+      }
+      const rev = face.Orientation_1() === oc.TopAbs_Orientation.TopAbs_REVERSED;
+      for (let i = 1; i <= m; i++){
+        const t = T.Triangle(i); let a = t.Value(1), b = t.Value(2), c = t.Value(3);
+        if (rev){ const x = b; b = c; c = x; }
+        idx.push(base + a - 1, base + b - 1, base + c - 1); fid.push(fi);
+      }
+      base += n;
+    }
+    if (!idx.length) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    // 계산하지 못한 점(특이점)은 주변 삼각형으로 채웁니다
+    let missing = false; for (let i = 0; i < nrm.length; i++) if (!Number.isFinite(nrm[i])){ missing = true; break; }
+    g.setIndex(base > 65535 ? new THREE.Uint32BufferAttribute(idx, 1) : new THREE.Uint16BufferAttribute(idx, 1));
+    if (missing){
+      g.computeVertexNormals(); const cn = g.attributes.normal.array;
+      for (let i = 0; i < nrm.length; i += 3) if (!Number.isFinite(nrm[i])){ nrm[i] = cn[i]; nrm[i+1] = cn[i+1]; nrm[i+2] = cn[i+2]; }
+    }
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    untangleFolds(g);
+    return {g, faceIds: Int32Array.from(fid), faceColor};
+  }
+  let partNo = 0;
+  function walk(L, inheritedColor){
+    let ref = L;
+    if (SToolS.IsReference(L)){ const r = new oc.TDF_Label(); SToolS.GetReferredShape(L, r); ref = r; }
+    const name = nameOf(ref) || nameOf(L);
+    const color = colorOfLabel(L) || colorOfLabel(ref) || inheritedColor;
+    let obj = null;
+    if (SToolS.IsAssembly(ref)){
+      const grp = new THREE.Group(); grp.name = name || '어셈블리';
+      const cs = new oc.TDF_LabelSequence_1(); SToolS.GetComponents(ref, cs, false);
+      for (let i = 1; i <= cs.Length(); i++){ const c = walk(cs.Value(i), color); if (c) grp.add(c); }
+      obj = grp.children.length ? grp : null;
+    } else {
+      const key = ref.Tag();
+      let d = geoCache.get(key);
+      if (d === undefined){ const s = new oc.TopoDS_Shape(); SToolS.GetShape_1(ref, s); d = shapeGeometry(s); geoCache.set(key, d); }
+      if (d){
+        partNo++;
+        obj = makeMesh(geoCache.get(key + ':used') ? d.g.clone() : d.g, name || `부품 ${partNo}`, color || d.faceColor, d.faceIds);
+        geoCache.set(key + ':used', true);
+      }
+    }
+    if (obj && SToolS.IsReference(L)){ obj.applyMatrix4(trsfMatrix(SToolS.GetLocation(L))); }
+    return obj;
+  }
+  const top = [];
+  for (let i = 1; i <= free.Length(); i++){ const o = walk(free.Value(i), null); if (o) top.push(o); }
+  if (!top.length) throw new Error('형상을 읽지 못했습니다');
+  if (top.length === 1){ if (!top[0].name || top[0].name === '어셈블리') top[0].name = fileName; return top[0]; }
+  const grp = new THREE.Group(); grp.name = fileName; top.forEach(o => grp.add(o)); return grp;
+}
+
 let occtP = null;
 function getOcct(){
   if (!occtP){
@@ -702,13 +852,22 @@ async function loadFiles(files){
         fixNormals(g, false);
         obj = makeMesh(g, f.name.replace(/\.stl$/i, ''));
       } else {
-        busy('STEP 해석 엔진 준비 중'); await nextFrame();
-        const occt = await getOcct();
-        busy(`${f.name} 형상 해석 중 (큰 파일은 수십 초 걸릴 수 있습니다)`); await nextFrame();
-        const params = Object.assign({linearUnit:'millimeter', linearDeflectionType:'bounding_box_ratio'}, QUALITY[$('#quality').value] || QUALITY.std);
-        const res = (ext === 'igs' || ext === 'iges') ? occt.ReadIgesFile(new Uint8Array(buf), params) : occt.ReadStepFile(new Uint8Array(buf), params);
-        if (!res || !res.success || !res.meshes.length) throw new Error('형상을 읽지 못했습니다');
-        obj = buildFromOcct(res, f.name.replace(/\.(stp|step|igs|iges)$/i, ''));
+        const base = f.name.replace(/\.(stp|step|igs|iges)$/i, '');
+        try {
+          const oc = await getOC();
+          busy(`${f.name} 형상 해석 중 (큰 파일은 수십 초 걸릴 수 있습니다)`); await nextFrame();
+          obj = ocReadCad(oc, new Uint8Array(buf), ext, base, $('#quality').value);
+        } catch (ocErr){
+          // 정밀 엔진을 쓸 수 없으면 경량 엔진으로 엽니다
+          console.warn('정밀 엔진 실패, 경량 엔진으로 엽니다', ocErr);
+          busy('STEP 해석 엔진 준비 중'); await nextFrame();
+          const occt = await getOcct();
+          busy(`${f.name} 형상 해석 중 (경량 엔진)`); await nextFrame();
+          const params = Object.assign({linearUnit:'millimeter', linearDeflectionType:'bounding_box_ratio'}, QUALITY[$('#quality').value] || QUALITY.std);
+          const res = (ext === 'igs' || ext === 'iges') ? occt.ReadIgesFile(new Uint8Array(buf), params) : occt.ReadStepFile(new Uint8Array(buf), params);
+          if (!res || !res.success || !res.meshes.length) throw new Error('형상을 읽지 못했습니다');
+          obj = buildFromOcct(res, base);
+        }
       }
       modelRoot.add(obj); loaded.push(f.name);
     } catch(err){
