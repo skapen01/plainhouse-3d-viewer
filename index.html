@@ -358,6 +358,7 @@ function featureEdges(geo, faceIds){
   }
   const edges = new Map();
   for (let t = 0; t < triCount; t++){
+    if (!ok[t]) continue;
     for (let j = 0; j < 3; j++){
       const i0 = vi(t, j), i1 = vi(t, (j + 1) % 3), a = vid[i0], b = vid[i1];
       if (a === b) continue;
@@ -378,6 +379,65 @@ function featureEdges(geo, faceIds){
     if (draw){ const a = r[2], b = r[3]; out.push(pos[3*a], pos[3*a+1], pos[3*a+2], pos[3*b], pos[3*b+1], pos[3*b+2]); }
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(out, 3)); return g;
+}
+/* 음영 보정: 꼭짓점마다 실제 형상에서 면 방향을 다시 계산합니다.
+   STEP이 준 방향이 형상과 크게 어긋난 곳(특이점·경계)만 바로잡고, 40° 이상 꺾인 모서리는 날카롭게 유지합니다. */
+function fixNormals(geo, keepAnalytic){
+  const pos = geo.attributes.position.array, idx = geo.index ? geo.index.array : null;
+  const nV = pos.length / 3, triCount = Math.floor((idx ? idx.length : nV) / 3);
+  if (!triCount || triCount > 1500000){ if (!geo.attributes.normal) geo.computeVertexNormals(); return; }
+  const vi = (t, j) => idx ? idx[3*t + j] : 3*t + j;
+  geo.computeBoundingBox();
+  const q = 1e5 / (geo.boundingBox.getSize(new THREE.Vector3()).length() || 1);
+  const uid = new Int32Array(nV), map = new Map();
+  for (let i = 0; i < nV; i++){
+    const k = Math.round(pos[3*i]*q) + ',' + Math.round(pos[3*i+1]*q) + ',' + Math.round(pos[3*i+2]*q);
+    let id = map.get(k); if (id === undefined){ id = map.size; map.set(k, id); } uid[i] = id;
+  }
+  const nU = map.size, fn = new Float32Array(triCount * 3), ang = new Float32Array(triCount * 3), ok = new Uint8Array(triCount);
+  const cnt = new Int32Array(nU + 1);
+  for (let t = 0; t < triCount; t++){
+    const v = [vi(t,0), vi(t,1), vi(t,2)];
+    const P = v.map(i => [pos[3*i], pos[3*i+1], pos[3*i+2]]);
+    const e1 = [P[1][0]-P[0][0], P[1][1]-P[0][1], P[1][2]-P[0][2]], e2 = [P[2][0]-P[0][0], P[2][1]-P[0][1], P[2][2]-P[0][2]];
+    const nx = e1[1]*e2[2]-e1[2]*e2[1], ny = e1[2]*e2[0]-e1[0]*e2[2], nz = e1[0]*e2[1]-e1[1]*e2[0], L = Math.hypot(nx, ny, nz);
+    if (L > 1e-14){ fn[3*t] = nx/L; fn[3*t+1] = ny/L; fn[3*t+2] = nz/L; ok[t] = 1; }
+    for (let j = 0; j < 3; j++){
+      const a = P[j], b = P[(j+1)%3], c = P[(j+2)%3];
+      const ux = b[0]-a[0], uy = b[1]-a[1], uz = b[2]-a[2], wx = c[0]-a[0], wy = c[1]-a[1], wz = c[2]-a[2];
+      const d = Math.hypot(ux,uy,uz) * Math.hypot(wx,wy,wz);
+      ang[3*t+j] = d > 0 ? Math.acos(Math.max(-1, Math.min(1, (ux*wx+uy*wy+uz*wz) / d))) : 0;
+      cnt[uid[v[j]] + 1]++;
+    }
+  }
+  for (let i = 0; i < nU; i++) cnt[i+1] += cnt[i];
+  const fill = cnt.slice(0, nU), adj = new Int32Array(triCount * 3);
+  for (let t = 0; t < triCount; t++) for (let j = 0; j < 3; j++) adj[fill[uid[vi(t,j)]]++] = 3*t + j;
+  const own = new Float32Array(nV * 3);
+  for (let t = 0; t < triCount; t++){ if (!ok[t]) continue; for (let j = 0; j < 3; j++){ const v = vi(t,j), w = ang[3*t+j]; own[3*v] += fn[3*t]*w; own[3*v+1] += fn[3*t+1]*w; own[3*v+2] += fn[3*t+2]*w; } }
+  const old = keepAnalytic && geo.attributes.normal ? geo.attributes.normal.array : null;
+  const out = new Float32Array(nV * 3), cosCrease = Math.cos(THREE.MathUtils.degToRad(40)), cosKeep = Math.cos(THREE.MathUtils.degToRad(12));
+  for (let v = 0; v < nV; v++){
+    let rx = own[3*v], ry = own[3*v+1], rz = own[3*v+2]; const rl = Math.hypot(rx, ry, rz);
+    let gx = 0, gy = 0, gz = 0;
+    if (rl > 0){
+      rx /= rl; ry /= rl; rz /= rl;
+      for (let k = cnt[uid[v]]; k < cnt[uid[v] + 1]; k++){
+        const c = adj[k], t = (c / 3) | 0; if (!ok[t]) continue;
+        if (fn[3*t]*rx + fn[3*t+1]*ry + fn[3*t+2]*rz < cosCrease) continue;
+        const w = ang[c]; gx += fn[3*t]*w; gy += fn[3*t+1]*w; gz += fn[3*t+2]*w;
+      }
+    }
+    const gl = Math.hypot(gx, gy, gz);
+    if (gl > 0){ gx /= gl; gy /= gl; gz /= gl; } else if (rl > 0){ gx = rx; gy = ry; gz = rz; }
+    else if (old){ gx = old[3*v]; gy = old[3*v+1]; gz = old[3*v+2]; } else { gz = 1; }
+    if (old){
+      const ox = old[3*v], oy = old[3*v+1], oz = old[3*v+2], ol = Math.hypot(ox, oy, oz);
+      if (ol > 0.5 && (ox*gx + oy*gy + oz*gz) / ol > cosKeep){ gx = ox/ol; gy = oy/ol; gz = oz/ol; }
+    }
+    out[3*v] = gx; out[3*v+1] = gy; out[3*v+2] = gz;
+  }
+  geo.setAttribute('normal', new THREE.BufferAttribute(out, 3));
 }
 const QUALITY = {
   fast: {linearDeflection:0.001,  angularDeflection:0.5},
@@ -498,7 +558,7 @@ function buildFromOcct(res, fileName){
     g.setAttribute('position', new THREE.Float32BufferAttribute(m.attributes.position.array, 3));
     if (m.attributes.normal) g.setAttribute('normal', new THREE.Float32BufferAttribute(m.attributes.normal.array, 3));
     if (m.index) g.setIndex(m.index.array);
-    if (!m.attributes.normal) g.computeVertexNormals();
+    fixNormals(g, !!m.attributes.normal);
     let faceIds = null;
     if (m.brep_faces && m.brep_faces.length){
       const tc = (m.index ? m.index.array.length : m.attributes.position.array.length / 3) / 3;
@@ -539,7 +599,7 @@ async function loadFiles(files){
       let obj;
       if (ext === 'stl'){
         const g = new THREE.STLLoader().parse(buf);
-        if (!g.attributes.normal) g.computeVertexNormals();
+        fixNormals(g, false);
         obj = makeMesh(g, f.name.replace(/\.stl$/i, ''));
       } else {
         busy('STEP 해석 엔진 준비 중'); await nextFrame();
