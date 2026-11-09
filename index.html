@@ -831,13 +831,23 @@ function ocReadCad(oc, bytes, ext, fileName, quality){
       obj = grp.children.length ? grp : null;
     } else {
       const key = ref.Tag();
-      let d = geoCache.get(key);
-      if (d === undefined){ const s = new oc.TopoDS_Shape(); SToolS.GetShape_1(ref, s); d = shapeGeometry(s); if (d) d.shape = s; geoCache.set(key, d); }
-      if (d){
+      let ds = geoCache.get(key);
+      if (ds === undefined){
+        // 한 부품 안에 솔리드가 여러 개면 각각 따로 선택·편집할 수 있게 나눕니다
+        const s = new oc.TopoDS_Shape(); SToolS.GetShape_1(ref, s);
+        const solids = [], ex = new oc.TopExp_Explorer_2(s, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+        for (; ex.More(); ex.Next()) solids.push(oc.TopoDS.Solid_1(ex.Current()));
+        const pieces = solids.length > 1 ? solids : [s];
+        ds = pieces.map(pc => { const d = shapeGeometry(pc); if (d) d.shape = pc; return d; }).filter(Boolean);
+        geoCache.set(key, ds);
+      }
+      if (ds.length){
         partNo++;
-        obj = makeMesh(geoCache.get(key + ':used') ? d.g.clone() : d.g, name || `부품 ${partNo}`, color || d.faceColor, d.faceIds);
-        geoCache.set(key + ':used', true);
-        obj.userData.brep = d.shape;
+        const reuse = geoCache.get(key + ':used'); geoCache.set(key + ':used', true);
+        const base = name || `부품 ${partNo}`;
+        const mk = (d, nm) => { const m = makeMesh(reuse ? d.g.clone() : d.g, nm, color || d.faceColor, d.faceIds); m.userData.brep = d.shape; return m; };
+        if (ds.length === 1) obj = mk(ds[0], base);
+        else { obj = new THREE.Group(); obj.name = base; ds.forEach((d, i) => obj.add(mk(d, `${base} #${i + 1}`))); }
       }
     }
     if (obj && SToolS.IsReference(L)){ obj.applyMatrix4(trsfMatrix(SToolS.GetLocation(L))); }
