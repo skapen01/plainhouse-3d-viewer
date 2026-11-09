@@ -8,3 +8,6 @@ STP·STEP·STL·IGES 파일을 브라우저에서 열어 치수 확인, 측정, 
 - `occt-import-js.js`, `occt-import-js.wasm` — 경량 엔진 (정밀 엔진을 쓸 수 없을 때 대신 사용)
 - `lib/` — three.js 0.147.0 (MIT)
 - `netlify.toml` — 배포 설정 (빌드 없음)
+- `lib/jspdf.umd.min.js` — 도면 PDF 생성 (jsPDF 2.5.1, MIT)
+- `lib/ph-Regular.ttf` — 도면용 한글 글꼴 (Pretendard Regular, 한글·영문 부분 글꼴, OFL)
+- `lib/ph-logo.png` — 도면 표제란 Plainhouse 로고

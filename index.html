@@ -115,6 +115,21 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);
   padding:9px 14px;border-radius:6px;font-size:12.5px;z-index:20;max-width:calc(100% - 32px)}
 .chk{display:flex;gap:6px;align-items:center;cursor:pointer;color:var(--muted)}
+/* 도면 담당자 입력 창 */
+.dlg{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:color-mix(in srgb,#000 55%,transparent)}
+.dlg form{width:min(440px,100%);max-height:100%;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;display:grid;gap:14px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.dlg h3{margin:0;font-size:16px}
+.dlg .sub{margin:-8px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+.fld{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.fld .req{color:var(--danger)}
+.fld input[type=text],.fld input[type=email],.fld select{font-family:var(--sans);font-size:14px;padding:8px 10px;color:var(--fg)}
+.dlg .row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.dlg .fld input[type=text],.dlg .fld input[type=email],.dlg .fld select{width:100%;min-width:0;box-sizing:border-box}
+@media (max-width:480px){.dlg .row2{grid-template-columns:minmax(0,1fr)}}
+.dlg .err{min-height:1em;margin:0;color:var(--danger);font-size:12px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px}
+.dlg .acts .btn{padding:8px 14px}
+
 @media (max-width:860px){
   body{overflow:auto}
   .app{height:auto;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 62vh auto auto;grid-template-areas:"bar" "vp" "side" "tree"}
@@ -160,6 +175,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     <button class="btn" id="undoBtn" disabled title="Ctrl+Z">되돌리기</button>
     <button class="btn" id="saveBtn" disabled>STL 저장</button>
     <button class="btn" id="stepBtn" disabled title="원래 곡면 형상을 유지한 채 편집 결과를 STEP으로 저장">STEP 저장</button>
+    <button class="btn" id="drawBtn" disabled title="정면·평면·우측면·등각 도면을 PDF로 만듭니다">도면 PDF</button>
   </header>
 
   <aside class="panel tree">
@@ -262,6 +278,25 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       <p class="note" style="margin:0" id="saveNote">보이는 부품을 편집한 상태 그대로 저장합니다.<br><b>STEP</b>: 원래 곡면 형상을 유지하고 이동·회전·크기·색상·삭제를 반영합니다. STEP·IGES로 연 부품만 들어갑니다.<br><b>STL</b>: 화면의 삼각형 그대로 저장합니다.</p>
     </section>
   </aside>
+</div>
+
+<div class="dlg" id="drawDlg" hidden role="dialog" aria-modal="true" aria-labelledby="dwHead">
+  <form id="drawForm" novalidate>
+    <h3 id="dwHead">도면 PDF 만들기</h3>
+    <p class="sub">정면도·평면도·우측면도·등각도와 외형 치수가 들어간 도면을 만듭니다. 담당자 정보는 도면 표제란에 들어갑니다.</p>
+    <div class="row2">
+      <label class="fld"><span>담당자 이름 <span class="req">(필수)</span></span><input class="in" id="dwName" type="text" autocomplete="name" required maxlength="40"></label>
+      <label class="fld"><span>이메일 <span class="req">(필수)</span></span><input class="in" id="dwEmail" type="email" autocomplete="email" required maxlength="80" placeholder="name@plain-house.com"></label>
+    </div>
+    <label class="fld">도면명<input class="in" id="dwTitle" type="text" maxlength="40"></label>
+    <div class="row2">
+      <label class="fld">용지<select class="in" id="dwPaper"><option value="A3">A3 가로</option><option value="A4">A4 가로</option></select></label>
+      <div class="fld">표시<label class="chk" style="margin-top:6px"><input type="checkbox" id="dwHidden" checked> 숨은선(파선) 표시</label></div>
+    </div>
+    <div class="fld"><label class="chk"><input type="checkbox" id="dwOnlySel"> 선택한 부품만 도면으로</label><span id="dwSelNote"></span></div>
+    <p class="err" id="dwErr" role="alert"></p>
+    <div class="acts"><button class="btn" type="button" id="dwCancel">취소</button><button class="btn primary" type="submit">도면 PDF 만들기</button></div>
+  </form>
 </div>
 
 <script src="lib/three.min.js"></script>
@@ -1166,7 +1201,7 @@ window.addEventListener('keydown', e => {
 });
 
 /* ---------- export STL (zip) ---------- */
-function updateSave(){ $('#saveBtn').disabled = !hasModel(); $('#stepBtn').disabled = !hasBrep(); }
+function updateSave(){ $('#saveBtn').disabled = !hasModel(); $('#stepBtn').disabled = !hasBrep(); $('#drawBtn').disabled = !hasBrep(); }
 function buildSTL(){
   const list = []; modelRoot.updateMatrixWorld(true);
   modelRoot.traverse(o => { if (o.isMesh && isVisible(o)) list.push(o); });
@@ -1262,6 +1297,231 @@ $('#stepBtn').onclick = async () => {
   const note = r.skipped ? ` · STL로 연 부품 ${r.skipped}개는 제외` : '';
   await deliverFile(`${fileBase()}_수정.stp`, r.bytes, 'model/step', `STEP 저장 완료 (부품 ${r.count}개${note})`);
 };
+
+const JSPDF_URL = 'lib/jspdf.umd.min.js';
+/* ---------- 도면 PDF ---------- */
+// 3D 형상(B-rep)을 정면·평면·우측면·등각으로 투영해 보이는 선/숨은선을 계산하고, A3·A4 도면 PDF로 그립니다.
+const KR_FONT_URL = 'lib/ph-Regular.ttf', LOGO_URL = 'lib/ph-logo.png';
+const DRAW_VIEWS = [
+  ['front', '정면도',  [0, -1, 0], [1, 0, 0]],
+  ['top',   '평면도',  [0, 0, 1],  [1, 0, 0]],
+  ['right', '우측면도', [1, 0, 0],  [0, 1, 0]],
+  ['iso',   '등각도',  [1, -1, 1], [1, 1, 0]],
+];
+const store = {
+  get(k){ try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+  set(k, v){ try { localStorage.setItem(k, v); } catch {} },
+};
+function loadScriptOnce(src){
+  return new Promise((res, rej) => {
+    if (window.jspdf) return res();
+    const s = document.createElement('script'); s.src = src;
+    s.onload = () => res(); s.onerror = () => rej(new Error('PDF 도구를 불러오지 못했습니다'));
+    document.head.append(s);
+  });
+}
+async function fetchBytes(url){ const r = await fetch(url); if (!r.ok) throw new Error('도면 자료를 받지 못했습니다'); return new Uint8Array(await r.arrayBuffer()); }
+function toB64(b){ let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); }
+
+function drawingTargets(onlySelected){
+  const list = []; modelRoot.updateMatrixWorld(true);
+  const root = onlySelected && selected ? selected : modelRoot;
+  root.traverse(o => { if (o.isMesh && o.userData.brep && isVisible(o)) list.push(o); });
+  return list;
+}
+function drawingShape(oc, list){
+  const b = new oc.BRep_Builder(), comp = new oc.TopoDS_Compound(); b.MakeCompound(comp);
+  for (const o of list){
+    const e = o.matrixWorld.elements, t = new oc.gp_Trsf_1();
+    t.SetValues(e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14]);
+    b.Add(comp, new oc.BRepBuilderAPI_Transform_2(o.userData.brep, t, true).Shape());
+  }
+  return comp;
+}
+function edgesToPolys(oc, comp){
+  const polys = [];
+  if (!comp || comp.IsNull()) return polys;
+  const ex = new oc.TopExp_Explorer_2(comp, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  for (; ex.More(); ex.Next()){
+    let c; try { c = new oc.BRepAdaptor_Curve_2(oc.TopoDS.Edge_1(ex.Current())); } catch { continue; }
+    const a = c.FirstParameter(), z = c.LastParameter();
+    const n = c.GetType() === oc.GeomAbs_CurveType.GeomAbs_Line ? 1 : 48, pts = [];
+    for (let i = 0; i <= n; i++){ const p = c.Value(a + (z - a) * i / n); pts.push([p.X(), p.Y()]); }
+    polys.push(pts);
+  }
+  return polys;
+}
+async function computeViews(oc, shape){
+  const out = {};
+  for (let i = 0; i < DRAW_VIEWS.length; i++){
+    const [key, label, N, X] = DRAW_VIEWS[i];
+    busy(`도면 계산 중 (${i + 1}/4 ${label}) · 복잡한 형상은 시간이 걸립니다`); await nextFrame();
+    const algo = new oc.HLRBRep_Algo_1();
+    algo.Add_2(shape, 0);
+    algo.Projector_1(new oc.HLRAlgo_Projector_2(new oc.gp_Ax2_2(new oc.gp_Pnt_3(0, 0, 0), new oc.gp_Dir_4(...N), new oc.gp_Dir_4(...X))));
+    algo.Update(); algo.Hide_1();
+    const h = new oc.HLRBRep_HLRToShape(new oc.Handle_HLRBRep_Algo_2(algo));
+    out[key] = {
+      vis: [...edgesToPolys(oc, h.VCompound_1()), ...edgesToPolys(oc, h.OutLineVCompound_1())],
+      smooth: edgesToPolys(oc, h.Rg1LineVCompound_1()),
+      hid: key === 'iso' ? [] : [...edgesToPolys(oc, h.HCompound_1()), ...edgesToPolys(oc, h.OutLineHCompound_1())],
+    };
+  }
+  return out;
+}
+function viewExtent(v){
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const k of ['vis', 'smooth']) for (const poly of v[k]) for (const [x, y] of poly){ if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (!Number.isFinite(x0)) return [0, 0, 1, 1];
+  return [x0, y0, x1, y1];
+}
+function scaleLabel(s){ return s >= 1 ? `${Math.round(s)}:1` : `1:${Math.round(1 / s)}`; }
+
+function renderDrawingPdf(views, info, fontB64, logoDataUrl){
+  const paper = info.paper === 'A4' ? [297, 210] : [420, 297];
+  const [W, H] = paper, M = 10, BAR = info.paper === 'A4' ? 8 : 9;
+  const doc = new window.jspdf.jsPDF({orientation: 'landscape', unit: 'mm', format: info.paper.toLowerCase(), compress: true});
+  doc.addFileToVFS('ph.ttf', fontB64); doc.addFont('ph.ttf', 'PH', 'normal');
+  doc.setProperties({title: `${info.title} 도면`, author: `${info.name} (${info.email})`, subject: 'Plainhouse 보안 문서', creator: 'Plainhouse Internal 3D Viewer'});
+  const Y = y => H - y;                       // 아래에서 위로 재는 좌표 → PDF 좌표
+  const ink = () => doc.setDrawColor(20, 23, 26);
+  const kr = (size, rgb = [20, 23, 26]) => { doc.setFont('PH', 'normal'); doc.setFontSize(size); doc.setTextColor(...rgb); };
+  const lat = (size, bold) => { doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size); doc.setTextColor(20, 23, 26); };
+
+  // 테두리
+  ink(); doc.setLineWidth(0.7); doc.rect(M, M, W - 2 * M, H - 2 * M);
+  // 대외비 바 (최상단)
+  doc.setFillColor(196, 30, 36); doc.rect(M, M, W - 2 * M, BAR, 'F');
+  kr(info.paper === 'A4' ? 10 : 12, [255, 255, 255]);
+  doc.text('대외비 · CONFIDENTIAL', M + 5, M + BAR / 2, {baseline: 'middle'});
+  kr(info.paper === 'A4' ? 7 : 8, [255, 255, 255]);
+  doc.text('본 도면은 Plainhouse의 기밀 자료입니다. 외부로의 유출·복제·배포를 금합니다.', W - M - 5, M + BAR / 2, {baseline: 'middle', align: 'right'});
+
+  // 표제란 (오른쪽 아래)
+  const TBW = 180, TBH = 44, tx = W - M - TBW, ty = M;          // ty: 아래쪽 기준
+  ink(); doc.setLineWidth(0.5); doc.rect(tx, Y(ty + TBH), TBW, TBH);
+  doc.setLineWidth(0.25);
+  const g0 = tx + 56, rows = [ty, ty + 11, ty + 22, ty + 33, ty + TBH];
+  doc.line(g0, Y(ty), g0, Y(ty + TBH));
+  for (const r of rows.slice(1, 4)) doc.line(g0, Y(r), tx + TBW, Y(r));
+  const c3 = [g0, g0 + 60, g0 + 92, tx + TBW];
+  for (const x of c3.slice(1, 3)) doc.line(x, Y(ty + 11), x, Y(ty + 33));
+  const cMail = g0 + 44; doc.line(cMail, Y(ty), cMail, Y(ty + 11));
+  // 로고 + 문구
+  const LW = 44, LH = LW * 194 / 782;
+  doc.addImage(logoDataUrl, 'PNG', tx + 6, Y(ty + TBH - 7), LW, LH);
+  kr(7.2, [60, 64, 70]); doc.text('Plainhouse Design Lab. Internal 3D', tx + 6, Y(ty + TBH - 7 - LH - 6));
+  const cell = (x, yb, label, value, size = 9.5) => {
+    kr(5.6, [110, 116, 124]); doc.text(label, x + 2, Y(yb + 7.6));
+    kr(size); doc.text(String(value), x + 2, Y(yb + 2.6));
+  };
+  // 척도 결정
+  const E = {}; for (const [k] of DRAW_VIEWS) E[k] = viewExtent(views[k]);
+  const sz = k => [E[k][2] - E[k][0], E[k][3] - E[k][1]];
+  const [fw, fh] = sz('front'), [tw, th] = sz('top'), [rw, rh] = sz('right');
+  const GAP = info.paper === 'A4' ? 22 : 30, regionW = W - 2 * M - 40, regionH = H - 2 * M - BAR - TBH - 34;
+  let scale = 0.01;
+  for (const s of [10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]){
+    if ((fw + rw) * s + GAP <= regionW * 0.76 && (th + fh) * s + GAP <= regionH){ scale = s; break; }
+  }
+  kr(7, [110, 116, 124]); doc.text('도면명', g0 + 2, Y(ty + TBH - 4.6));
+  kr(info.title.length > 18 ? 11 : 14); doc.text(info.title, g0 + 15, Y(ty + TBH - 7.4));
+  cell(c3[0], ty + 22, '파일', info.file, info.file.length > 26 ? 7.5 : 9.5);
+  cell(c3[1], ty + 22, '척도', scaleLabel(scale));
+  cell(c3[2], ty + 22, '단위', 'mm');
+  cell(c3[0], ty + 11, '투상법', '제3각법');
+  cell(c3[1], ty + 11, '작성일', info.date, 9);
+  cell(c3[2], ty + 11, '용지', info.paper);
+  cell(g0, ty, '담당자', info.name, info.name.length > 12 ? 8 : 9.5);
+  cell(cMail, ty, '이메일', info.email, info.email.length > 30 ? 7.5 : 9);
+
+  // 뷰 그리기
+  const poly = (pts, T) => { const [x, y] = T(pts[0]); doc.moveTo(x, y); for (let i = 1; i < pts.length; i++){ const [a, b] = T(pts[i]); doc.lineTo(a, b); } doc.stroke(); };
+  function drawView(key, ox, oy, s, label, showHidden){
+    const v = views[key], e = E[key], T = p => [ox + (p[0] - e[0]) * s, Y(oy + (p[1] - e[1]) * s)];
+    doc.setLineCap('round'); doc.setLineJoin('round');
+    if (showHidden && v.hid.length){ doc.setDrawColor(115, 122, 128); doc.setLineWidth(0.18); doc.setLineDashPattern([2.2, 1.1], 0); v.hid.forEach(p => poly(p, T)); doc.setLineDashPattern([], 0); }
+    doc.setDrawColor(90, 95, 102); doc.setLineWidth(0.18); v.smooth.forEach(p => poly(p, T));
+    ink(); doc.setLineWidth(0.45); v.vis.forEach(p => poly(p, T));
+    const [w, h] = sz(key); kr(8.5);
+    doc.text(label, ox + w * s / 2, Y(oy - (key === 'iso' ? 6 : 15)), {align: 'center'});
+    return [ox, oy, w * s, h * s];
+  }
+  const arrow = (x, y, dx, dy) => { const a = Math.atan2(dy, dx), L = 2.6, A = 0.33;
+    doc.setFillColor(20, 23, 26); doc.triangle(x, Y(y), x - L * Math.cos(a - A), Y(y - L * Math.sin(a - A)), x - L * Math.cos(a + A), Y(y - L * Math.sin(a + A)), 'F'); };
+  const hdim = (x0, x1, y, yref, val) => { ink(); doc.setLineWidth(0.18);
+    for (const x of [x0, x1]) doc.line(x, Y(yref - 1), x, Y(y - 2));
+    doc.line(x0, Y(y), x1, Y(y)); arrow(x0, y, -1, 0); arrow(x1, y, 1, 0);
+    lat(8.5); doc.text(val.toFixed(1), (x0 + x1) / 2, Y(y + 1.2), {align: 'center'}); };
+  const vdim = (y0, y1, x, xref, val) => { ink(); doc.setLineWidth(0.18);
+    for (const y of [y0, y1]) doc.line(xref - 1, Y(y), x - 2, Y(y));
+    doc.line(x, Y(y0), x, Y(y1)); arrow(x, y0, 0, -1); arrow(x, y1, 0, 1);
+    lat(8.5); doc.text(val.toFixed(1), x - 1.2, Y((y0 + y1) / 2), {align: 'center', angle: 90}); };
+
+  const ox = M + 28, blockH = (th + fh) * scale + GAP;
+  const regionBottom = M + TBH + 22, oyF = regionBottom + Math.max(0, (regionH - blockH) / 2);
+  const [fx, fy, fW, fH] = drawView('front', ox, oyF, scale, '정면도', info.hidden);
+  const [tx2, ty2, tW, tH] = drawView('top', ox, oyF + fH + GAP, scale, '평면도', info.hidden);
+  const [rx, ry, rW, rH] = drawView('right', ox + fW + GAP, oyF, scale, '우측면도', info.hidden);
+  // 등각도: 오른쪽 위 남는 칸에 맞춰 축소
+  const [iw, ih] = sz('iso');
+  const boxX = ox + fW + GAP, boxW = W - M - 12 - boxX, boxY = oyF + fH + GAP, boxH = H - M - BAR - 16 - boxY;
+  const is = Math.max(0.001, Math.min(boxW / iw, boxH / ih, scale) * 0.9);
+  drawView('iso', boxX + (boxW - iw * is) / 2, boxY + 4, is, '등각도 (참고, 비례 축소)', false);
+  // 외형 치수
+  hdim(fx, fx + fW, fy - 8, fy, fW / scale);
+  vdim(fy, fy + fH, fx - 8, fx, fH / scale);
+  vdim(ty2, ty2 + tH, tx2 - 8, tx2, tH / scale);
+  hdim(rx, rx + rW, ry - 8, ry, rW / scale);
+  kr(6.8, [110, 116, 124]);
+  doc.text(`굵은 실선: 보이는 외형선 · 가는 실선: 매끈하게 이어지는 면 경계${info.hidden ? ' · 파선: 숨은선' : ''} · 치수는 외형 기준(mm) · Plainhouse Internal 3D Viewer 자동 생성`, M + 4, Y(M + 4));
+  return new Uint8Array(doc.output('arraybuffer'));
+}
+
+/* 담당자 입력 창 */
+function openDrawingDialog(){
+  if (!hasBrep()){ toast('도면은 STEP·IGES로 연 부품만 만들 수 있습니다'); return; }
+  const dlg = $('#drawDlg');
+  $('#dwName').value = store.get('ph.drawing.name');
+  $('#dwEmail').value = store.get('ph.drawing.email');
+  $('#dwTitle').value = selected && $('#dwOnlySel').checked ? (selected.name || fileBase()) : fileBase();
+  const selOk = !!(selected && drawingTargets(true).length);
+  $('#dwOnlySel').disabled = !selOk; if (!selOk) $('#dwOnlySel').checked = false;
+  $('#dwSelNote').textContent = selOk ? `선택: ${selected.name || '부품'}` : '부품을 선택하면 그 부품만 도면으로 만들 수 있습니다';
+  $('#dwErr').textContent = '';
+  dlg.hidden = false; setTimeout(() => ($('#dwName').value ? $('#dwEmail') : $('#dwName')).focus(), 0);
+}
+function closeDrawingDialog(){ $('#drawDlg').hidden = true; }
+$('#drawBtn').onclick = openDrawingDialog;
+$('#dwCancel').onclick = closeDrawingDialog;
+$('#drawDlg').addEventListener('keydown', e => { if (e.key === 'Escape'){ e.stopPropagation(); closeDrawingDialog(); } });
+$('#dwOnlySel').onchange = () => { if ($('#dwOnlySel').checked && selected) $('#dwTitle').value = selected.name || fileBase(); else $('#dwTitle').value = fileBase(); };
+$('#drawForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = $('#dwName').value.trim(), email = $('#dwEmail').value.trim(), title = ($('#dwTitle').value.trim() || fileBase()).replace(/[\\/:*?"<>|]/g, '_');
+  if (!name){ $('#dwErr').textContent = '담당자 이름을 입력하세요.'; $('#dwName').focus(); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)){ $('#dwErr').textContent = '이메일 주소 형식을 확인하세요. 예: name@plain-house.com'; $('#dwEmail').focus(); return; }
+  store.set('ph.drawing.name', name); store.set('ph.drawing.email', email);
+  const list = drawingTargets($('#dwOnlySel').checked);
+  if (!list.length){ $('#dwErr').textContent = '도면으로 만들 부품이 없습니다. 숨긴 부품은 도면에 들어가지 않습니다.'; return; }
+  closeDrawingDialog();
+  const now = new Date(), pad = n => String(n).padStart(2, '0');
+  const info = {name, email, title, paper: $('#dwPaper').value, hidden: $('#dwHidden').checked,
+    file: (currentFile.split(',')[0] || title), date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`};
+  try {
+    busy('PDF 도구 준비 중'); await nextFrame();
+    const [, font, logo] = await Promise.all([loadScriptOnce(JSPDF_URL), fetchBytes(KR_FONT_URL), fetchBytes(LOGO_URL)]);
+    const oc = await getOC();
+    const views = await computeViews(oc, drawingShape(oc, list));
+    busy('PDF 만드는 중'); await nextFrame();
+    const pdf = renderDrawingPdf(views, info, toB64(font), 'data:image/png;base64,' + toB64(logo));
+    busy(null);
+    const fname = `${now.getFullYear()} ${pad(now.getMonth() + 1)}${pad(now.getDate())} ${title} 도면.pdf`;
+    await deliverFile(fname, pdf, 'application/pdf', `도면 PDF 저장 완료 (${info.paper}, 부품 ${list.length}개)`);
+  } catch (err){
+    console.error(err); busy(null); toast(err.message || '도면을 만들지 못했습니다');
+  }
+});
 
 /* ---------- start ---------- */
 applyTheme(); renderMeasures(); resize(); renderTree(); refreshStats(); updateStatus(); setMode('select'); loop();
