@@ -1375,7 +1375,7 @@ function viewExtent(v){
   if (!Number.isFinite(x0)) return [0, 0, 1, 1];
   return [x0, y0, x1, y1];
 }
-function scaleLabel(s){ return s >= 1 ? `${Math.round(s)}:1` : `1:${Math.round(1 / s)}`; }
+function scaleLabel(s){ const f = x => String(Math.round(x * 100) / 100); return s >= 1 ? `${f(s)}:1` : `1:${f(1 / s)}`; }
 
 function renderDrawingPdf(views, info, fontB64, logoDataUrl){
   const paper = info.paper === 'A4' ? [297, 210] : [420, 297];
@@ -1398,40 +1398,46 @@ function renderDrawingPdf(views, info, fontB64, logoDataUrl){
   doc.text('본 도면은 Plainhouse의 기밀 자료입니다. 외부로의 유출·복제·배포를 금합니다.', W - M - 5, M + BAR / 2, {baseline: 'middle', align: 'right'});
 
   // 표제란 (오른쪽 아래)
-  const TBW = 180, TBH = 44, tx = W - M - TBW, ty = M;          // ty: 아래쪽 기준
+  const A4 = info.paper === 'A4', TBW = A4 ? 156 : 180, TBH = A4 ? 38 : 44, tx = W - M - TBW, ty = M;   // ty: 아래쪽 기준
+  const RH = TBH / 4, kx = TBW / 180;
   ink(); doc.setLineWidth(0.5); doc.rect(tx, Y(ty + TBH), TBW, TBH);
   doc.setLineWidth(0.25);
-  const g0 = tx + 56, rows = [ty, ty + 11, ty + 22, ty + 33, ty + TBH];
+  const g0 = tx + 56 * kx, rows = [ty, ty + RH, ty + 2 * RH, ty + 3 * RH, ty + TBH];
   doc.line(g0, Y(ty), g0, Y(ty + TBH));
   for (const r of rows.slice(1, 4)) doc.line(g0, Y(r), tx + TBW, Y(r));
-  const c3 = [g0, g0 + 60, g0 + 92, tx + TBW];
-  for (const x of c3.slice(1, 3)) doc.line(x, Y(ty + 11), x, Y(ty + 33));
-  const cMail = g0 + 44; doc.line(cMail, Y(ty), cMail, Y(ty + 11));
+  const c3 = [g0, g0 + 60 * kx, g0 + 92 * kx, tx + TBW];
+  for (const x of c3.slice(1, 3)) doc.line(x, Y(ty + RH), x, Y(ty + 3 * RH));
+  const cMail = g0 + 44 * kx; doc.line(cMail, Y(ty), cMail, Y(ty + RH));
   // 로고 + 문구
-  const LW = 44, LH = LW * 194 / 782;
+  const LW = A4 ? 38 : 44, LH = LW * 194 / 782;
   doc.addImage(logoDataUrl, 'PNG', tx + 6, Y(ty + TBH - 7), LW, LH);
   kr(7.2, [60, 64, 70]); doc.text('Plainhouse Design Lab. Internal 3D', tx + 6, Y(ty + TBH - 7 - LH - 6));
   const cell = (x, yb, label, value, size = 9.5) => {
-    kr(5.6, [110, 116, 124]); doc.text(label, x + 2, Y(yb + 7.6));
+    kr(5.6, [110, 116, 124]); doc.text(label, x + 2, Y(yb + RH - 3.2));
     kr(size); doc.text(String(value), x + 2, Y(yb + 2.6));
   };
   // 척도 결정
   const E = {}; for (const [k] of DRAW_VIEWS) E[k] = viewExtent(views[k]);
   const sz = k => [E[k][2] - E[k][0], E[k][3] - E[k][1]];
   const [fw, fh] = sz('front'), [tw, th] = sz('top'), [rw, rh] = sz('right');
-  const GAP = info.paper === 'A4' ? 22 : 30, regionW = W - 2 * M - 40, regionH = H - 2 * M - BAR - TBH - 34;
-  let scale = 0.01;
-  for (const s of [10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01]){
-    if ((fw + rw) * s + GAP <= regionW * 0.76 && (th + fh) * s + GAP <= regionH){ scale = s; break; }
-  }
+  // 용지에 최대한 크게: 표제란 위 / 표제란 왼쪽 두 배치 중 더 크게 들어가는 쪽을 고르고,
+  // 그 크기 이하의 척도(표준 + 1:1.25, 1:1.5 같은 중간 척도) 중 가장 큰 것을 씁니다.
+  const GAP = A4 ? 14 : 20, DL = 18, DB = A4 ? 18 : 20, TOPL = 4;
+  const zoneL = M + 4, zoneR = W - M - 6, zoneT = H - M - BAR - 5, legendB = M + 9, tbTop = M + TBH + 5;
+  const fixW = DL + GAP + 4, fixH = DB + GAP + TOPL;
+  const fitS = (bottom, right) => Math.min((right - zoneL - fixW) / Math.max(fw + rw, 1e-6), (zoneT - bottom - fixH) / Math.max(th + fh, 1e-6));
+  const sAbove = fitS(tbTop, zoneR), sLeft = fitS(legendB, tx - 6);
+  const useLeft = sLeft > sAbove, sMax = Math.max(sAbove, sLeft);
+  const NICE = [50, 20, 10, 5, 4, 3, 2.5, 2, 1.5, 1.25, 1, 0.8, 2 / 3, 0.5, 0.4, 1 / 3, 0.25, 0.2, 0.1, 0.05, 0.04, 0.02, 0.01, 0.005];
+  const scale = NICE.find(v => v <= sMax * 1.0001) || Math.max(sMax, 0.001);
   kr(7, [110, 116, 124]); doc.text('도면명', g0 + 2, Y(ty + TBH - 4.6));
   kr(info.title.length > 18 ? 11 : 14); doc.text(info.title, g0 + 15, Y(ty + TBH - 7.4));
-  cell(c3[0], ty + 22, '파일', info.file, info.file.length > 26 ? 7.5 : 9.5);
-  cell(c3[1], ty + 22, '척도', scaleLabel(scale));
-  cell(c3[2], ty + 22, '단위', 'mm');
-  cell(c3[0], ty + 11, '투상법', '제3각법');
-  cell(c3[1], ty + 11, '작성일', info.date, 9);
-  cell(c3[2], ty + 11, '용지', info.paper);
+  cell(c3[0], ty + 2 * RH, '파일', info.file, info.file.length > 22 ? 7.5 : 9.5);
+  cell(c3[1], ty + 2 * RH, '척도', scaleLabel(scale));
+  cell(c3[2], ty + 2 * RH, '단위', 'mm');
+  cell(c3[0], ty + RH, '투상법', '제3각법');
+  cell(c3[1], ty + RH, '작성일', info.date, A4 ? 8 : 9);
+  cell(c3[2], ty + RH, '용지', info.paper);
   cell(g0, ty, '담당자', info.name, info.name.length > 12 ? 8 : 9.5);
   cell(cMail, ty, '이메일', info.email, info.email.length > 30 ? 7.5 : 9);
 
@@ -1444,7 +1450,7 @@ function renderDrawingPdf(views, info, fontB64, logoDataUrl){
     doc.setDrawColor(90, 95, 102); doc.setLineWidth(0.18); v.smooth.forEach(p => poly(p, T));
     ink(); doc.setLineWidth(0.45); v.vis.forEach(p => poly(p, T));
     const [w, h] = sz(key); kr(8.5);
-    doc.text(label, ox + w * s / 2, Y(oy - (key === 'iso' ? 6 : 15)), {align: 'center'});
+    doc.text(label, ox + w * s / 2, Y(oy - (key === 'front' || key === 'right' ? 15 : 6)), {align: 'center'});
     return [ox, oy, w * s, h * s];
   }
   const arrow = (x, y, dx, dy) => { const a = Math.atan2(dy, dx), L = 2.6, A = 0.33;
@@ -1458,23 +1464,49 @@ function renderDrawingPdf(views, info, fontB64, logoDataUrl){
     doc.line(x, Y(y0), x, Y(y1)); arrow(x, y0, 0, -1); arrow(x, y1, 0, 1);
     lat(8.5); doc.text(val.toFixed(1), x - 1.2, Y((y0 + y1) / 2), {align: 'center', angle: 90}); };
 
-  const ox = M + 28, blockH = (th + fh) * scale + GAP;
-  const regionBottom = M + TBH + 22, oyF = regionBottom + Math.max(0, (regionH - blockH) / 2);
-  const [fx, fy, fW, fH] = drawView('front', ox, oyF, scale, '정면도', info.hidden);
-  const [tx2, ty2, tW, tH] = drawView('top', ox, oyF + fH + GAP, scale, '평면도', info.hidden);
-  const [rx, ry, rW, rH] = drawView('right', ox + fW + GAP, oyF, scale, '우측면도', info.hidden);
-  // 등각도: 오른쪽 위 남는 칸에 맞춰 축소
+  const bottom = useLeft ? legendB : tbTop, right = useLeft ? tx - 6 : zoneR;
+  const bw = fixW + (fw + rw) * scale, bh = fixH + (th + fh) * scale;
+  // 남는 여백은 위아래·좌우로 고르게 나눠 가운데에 가깝게 놓습니다 (등각도 자리를 위해 오른쪽은 조금 더 남김)
+  const slackX = Math.max(0, right - zoneL - bw), slackY = Math.max(0, zoneT - bottom - bh);
+  const ox = zoneL + DL + slackX * 0.25, oyF = bottom + DB + slackY * 0.5;
+  const fW = fw * scale, fH = fh * scale, tH = th * scale, rW = rw * scale;
+  // 등각도는 남는 칸 중 가장 크게 들어가는 곳에 넣습니다
   const [iw, ih] = sz('iso');
-  const boxX = ox + fW + GAP, boxW = W - M - 12 - boxX, boxY = oyF + fH + GAP, boxH = H - M - BAR - 16 - boxY;
-  const is = Math.max(0.001, Math.min(boxW / iw, boxH / ih, scale) * 0.9);
-  drawView('iso', boxX + (boxW - iw * is) / 2, boxY + 4, is, '등각도 (참고, 비례 축소)', false);
+  const clipTB = ([x0, y0, x1, y1]) => {           // 표제란과 겹치면 피해 갑니다
+    if (x1 <= tx || y0 >= tbTop) return [x0, y0, x1, y1];
+    const a = [x0, tbTop, x1, y1], b = [x0, y0, Math.min(x1, tx - 6), y1];
+    const area = r => Math.max(0, r[2] - r[0]) * Math.max(0, r[3] - r[1]);
+    return area(a) >= area(b) ? a : b;
+  };
+  const rects = [
+    [ox + fW + GAP, oyF + fH + GAP - 4, zoneR, zoneT],                 // 평면도 오른쪽, 우측면도 위
+    [zoneL, oyF + fH + GAP + tH + 6, zoneR, zoneT],                     // 평면도 위
+    [ox + fW + GAP + rW + 12, bottom, zoneR, zoneT],                    // 우측면도 오른쪽
+    [zoneL, legendB, ox - DL - 6, zoneT],                               // 왼쪽 여백
+  ].map(clipTB);
+  let best = null;
+  for (const r of rects){
+    const w = r[2] - r[0], h = r[3] - r[1] - 9;
+    if (w <= 10 || h <= 10) continue;
+    const is = Math.min(w / iw, h / ih, scale) * 0.92;
+    if (!best || is > best.is) best = {r, is};
+  }
+  const [fx, fy] = drawView('front', ox, oyF, scale, '정면도', info.hidden);
+  const [tx2, ty2] = drawView('top', ox, oyF + fH + GAP, scale, '평면도', info.hidden);
+  const [rx, ry] = drawView('right', ox + fW + GAP, oyF, scale, '우측면도', info.hidden);
+  if (best){
+    const {r, is} = best, cx = (r[0] + r[2]) / 2, cy = (r[1] + 9 + r[3]) / 2;
+    drawView('iso', cx - iw * is / 2, cy - ih * is / 2, is, is < scale * 0.999 ? '등각도 (참고, 비례 축소)' : '등각도 (참고)', false);
+  }
   // 외형 치수
   hdim(fx, fx + fW, fy - 8, fy, fW / scale);
   vdim(fy, fy + fH, fx - 8, fx, fH / scale);
   vdim(ty2, ty2 + tH, tx2 - 8, tx2, tH / scale);
   hdim(rx, rx + rW, ry - 8, ry, rW / scale);
   kr(6.8, [110, 116, 124]);
-  doc.text(`굵은 실선: 보이는 외형선 · 가는 실선: 매끈하게 이어지는 면 경계${info.hidden ? ' · 파선: 숨은선' : ''} · 치수는 외형 기준(mm) · Plainhouse Internal 3D Viewer 자동 생성`, M + 4, Y(M + 4));
+  // 범례: 표제란과 겹치지 않게 폭을 넘으면 줄을 나눕니다
+  const legend = doc.splitTextToSize(`굵은 실선: 보이는 외형선 · 가는 실선: 매끈하게 이어지는 면 경계${info.hidden ? ' · 파선: 숨은선' : ''} · 치수는 외형 기준(mm) · Plainhouse Internal 3D Viewer 자동 생성`, tx - M - 10);
+  legend.forEach((line, i) => doc.text(line, M + 4, Y(M + 4 + (legend.length - 1 - i) * 3.2)));
   return new Uint8Array(doc.output('arraybuffer'));
 }
 
